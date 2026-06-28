@@ -1,0 +1,12 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.chimera.touch'
+    compileSdk 34
+    defaultConfig { applicationId "com.chimera.touch"; minSdk 26; targetSdk 34; versionCode 1; versionName "1.0" }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.mlkit:face-detection:16.1.5'
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+}
