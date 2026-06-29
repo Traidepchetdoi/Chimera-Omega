@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -43,44 +42,5 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
         </service>
-    </application>
-</manifest>
-        <!-- 📱 MAIN ACTIVITY -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <!-- 🖐️ ACCESSIBILITY SERVICE (Cánh tay vuốt) -->
-        <service
-            android:name=".TouchService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection|specialUse">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_config" />
-        </service>
-
-        <!-- 🔋 BATTERY OPTIMIZATION RECEIVER -->
-        <receiver
-            android:name=".BatteryOptimizationReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BATTERY_LOW" />
-                <action android:name="android.intent.action.BATTERY_OKAY" />
-            </intent-filter>
-        </receiver>
-
     </application>
 </manifest>
