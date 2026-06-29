@@ -11,159 +11,36 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 1
-        versionName "OMEGA-XRAY-2.0-FULL-ARMOR"
-        
-        // 📦 MULTIDEX: Hỗ trợ >64k methods (ML Kit rất nặng)
+        versionName "OMEGA-ZERO-CONFIG"
         multiDexEnabled true
-        
-        // 🏷️ BUILD CONFIG FIELDS: Tiêm biến môi trường vào code Java
-        buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm:ss')}\""
-        buildConfigField "boolean", "ENABLE_XRAY", "true"
-        buildConfigField "int", "WEBSOCKET_PORT_VISION", "8082"
-        buildConfigField "int", "WEBSOCKET_PORT_TOUCH", "8083"
-        
-        // 🎯 TEST INSTRUMENTATION
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // 🔐 SIGNING CONFIGS: Ký APK để Android 16 tin tưởng
-    signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
-        release {
-            // Dùng debug keystore cho release (vì ta không có keystore thật)
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
-    }
-
-    // 📊 BUILD TYPES: Debug vs Release
+    // ⚡ ĐÃ CẮT BỎ HOÀN TOÀN signingConfigs
+    // Gradle sẽ tự động dùng debug.keystore ngầm định của máy chủ Ubuntu
+    
     buildTypes {
-        debug {
-            debuggable true
-            minifyEnabled false  // Không obfuscate khi debug
-            signingConfig signingConfigs.debug
-            
-            // 🏷️ SUFFIX: Thêm hậu tố ".debug" vào tên app
-            applicationIdSuffix ".debug"
-            versionNameSuffix "-DEBUG"
-        }
         release {
-            debuggable false
-            minifyEnabled true   // ⚡ BẬT PROGUARD: Obfuscate code
-            shrinkResources true // ⚡ XÓA TÀI NGUYÊN RÁC
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
-            versionNameSuffix "-RELEASE"
+            minifyEnabled false
+            // ⚡ ĐÃ CẮT BỎ signingConfig
+        }
+        debug {
+            minifyEnabled false
+            // ⚡ ĐÃ CẮT BỎ signingConfig
         }
     }
     
-    // ⚙️ COMPILE OPTIONS: Java 17 compatibility
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
-        coreLibraryDesugaringEnabled true // Hỗ trợ Java 8+ APIs trên Android cũ
-    }
-    
-    // 🔧 BUILD FEATURES: Bật các tính năng nâng cao
-    buildFeatures {
-        viewBinding true      // Binding view tự động
-        buildConfig true      // Sinh ra file BuildConfig.java
-        aidl true             // Hỗ trợ AIDL (IPC)
-        renderScript true     // Hỗ trợ RenderScript
-    }
-    
-    // 🗑️ PACKAGING OPTIONS: Loại bỏ file trùng lặp
-    packagingOptions {
-        exclude 'META-INF/DEPENDENCIES'
-        exclude 'META-INF/LICENSE'
-        exclude 'META-INF/LICENSE.txt'
-        exclude 'META-INF/license.txt'
-        exclude 'META-INF/NOTICE'
-        exclude 'META-INF/NOTICE.txt'
-        exclude 'META-INF/notice.txt'
-        exclude 'META-INF/ASL2.0'
-        exclude 'META-INF/*.kotlin_module'
-        exclude 'META-INF/INDEX.LIST'
-        resources {
-            excludes += '/META-INF/{AL2.0,LGPL2.1}'
-        }
-    }
-    
-    // 🔍 LINT OPTIONS: Tắt các cảnh báo vô nghĩa
-    lint {
-        abortOnError false
-        checkReleaseBuilds false
-        ignoreWarnings true
-        disable 'MissingTranslation', 'ExtraTranslation', 'ObsoleteSdkInt', 'AllowBackup', 'GoogleAppIndexingWarning'
-    }
-    
-    // 🎯 SPLITS: Chia APK theo ABI (chỉ build cho arm64-v8a)
-    splits {
-        abi {
-            enable true
-            reset()
-            include 'arm64-v8a', 'armeabi-v7a'
-            universalApk false
-        }
-    }
-    
-    // 🧪 TEST OPTIONS
-    testOptions {
-        unitTests {
-            includeAndroidResources = true
-            returnDefaultValues = true
-        }
+        coreLibraryDesugaringEnabled true
     }
 }
 
-// 📚 DEPENDENCIES: Thư viện cần thiết
 dependencies {
-    // 🔧 CORE LIBRARY DESUGARING: Java 8+ APIs
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
-    
-    // 📦 MULTIDEX
     implementation 'androidx.multidex:multidex:2.0.1'
-    
-    // 🎨 ANDROIDX CORE
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
-    implementation 'androidx.core:core-ktx:1.12.0'
-    
-    // 🧠 ML KIT FACE DETECTION: Thị lực X-Quang
     implementation 'com.google.mlkit:face-detection:16.1.5'
-    implementation 'com.google.android.gms:play-services-mlkit-face-detection:17.0.1'
-    
-    // 🕸️ WEBSOCKET: Giao tiếp với Termux
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
-    
-    // 📝 ANNOTATIONS
     implementation 'androidx.annotation:annotation:1.7.0'
-    
-    // 🧪 TESTING
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-}
-
-// ⚡ TASK TÙY CHỈNH: In thông tin build
-tasks.register('printBuildInfo') {
-    doLast {
-        println "╔══════════════════════════════════════════╗"
-        println "║  🏗️  OMEGA BUILD INFORMATION              ║"
-        println "╠══════════════════════════════════════════╣"
-        println "║  Version: ${android.defaultConfig.versionName}"
-        println "║  Min SDK: ${android.defaultConfig.minSdk}"
-        println "║  Target SDK: ${android.defaultConfig.targetSdk}"
-        println "║  Build Time: ${new Date().format('yyyy-MM-dd HH:mm:ss')}"
-        println "╚══════════════════════════════════════════╝"
-    }
 }
