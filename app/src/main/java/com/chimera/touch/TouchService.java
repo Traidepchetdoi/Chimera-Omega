@@ -17,17 +17,20 @@ import android.util.Log;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import androidx.annotation.NonNull;
+
 import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
+
 import java.net.Socket;
-import java.io.DataOutputStream;
-import java.io.DataInputStream;
+import java.io.OutputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.List; // 🛡️ ĐÃ BỔ SUNG IMPORT
 
 public class TouchService extends AccessibilityService {
     private static final String TAG = "OmegaBareMetal";
@@ -37,47 +40,47 @@ public class TouchService extends AccessibilityService {
     private FaceDetector mFaceDetector;
     private Handler mHandler = new Handler();
     
-    // 🔥 RAW TCP BINARY BRIDGE
     private Socket mSocket;
-    private DataOutputStream mOut;
-    private DataInputStream mIn;
+    private OutputStream mOut;
+    private InputStream mIn;
     private boolean isConnected = false;
-    private Thread mReadThread;
 
     @Override
     public void onServiceConnected() {
-        startTouchServer(); 
         initFaceDetector(); 
         connectToBareMetalCore();
     }
 
     private void connectToBareMetalCore() {
         new Thread(() -> {
-            try {
-                mSocket = new Socket("127.0.0.1", 8082);
-                mSocket.setTcpNoDelay(true); // Tắt thuật toán Nagle
-                mOut = new DataOutputStream(mSocket.getOutputStream());
-                mIn = new DataInputStream(mSocket.getInputStream());
-                isConnected = true;
-                Log.i(TAG, "🔥 RAW TCP BINARY LINK ESTABLISHED");
-                
-                // Luồng đọc lệnh vuốt nhị phân từ C++
-                mReadThread = new Thread(() -> {
+            while (true) {
+                try {
+                    mSocket = new Socket("127.0.0.1", 8082);
+                    mSocket.setTcpNoDelay(true);
+                    mOut = mSocket.getOutputStream();
+                    mIn = mSocket.getInputStream();
+                    isConnected = true;
+                    Log.i(TAG, "🔥 RAW TCP BINARY LINK ESTABLISHED");
+                    
                     byte[] buffer = new byte[16];
                     while (isConnected) {
-                        try {
-                            mIn.readFully(buffer);
-                            ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
-                            float sx = bb.getFloat();
-                            float sy = bb.getFloat();
-                            float ex = bb.getFloat();
-                            float ey = bb.getFloat();
-                            dispatchSwipe((int)ex, (int)ey, 1);
-                        } catch (Exception e) { break; }
+                        int read = 0;
+                        while (read < 16) {
+                            int count = mIn.read(buffer, read, 16 - read);
+                            if (count < 0) throw new Exception("EOF");
+                            read += count;
+                        }
+                        // 🛡️ ĐỌC 16 BYTES THEO CHUẨN LITTLE-ENDIAN CỦA ARM64 C++
+                        ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
+                        float ex = bb.getFloat(8);
+                        float ey = bb.getFloat(12);
+                        dispatchSwipe((int)ex, (int)ey, 1);
                     }
-                });
-                mReadThread.start();
-            } catch (Exception e) { Log.e(TAG, "Core connection failed"); }
+                } catch (Exception e) { 
+                    isConnected = false;
+                    try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                }
+            }
         }).start();
     }
 
@@ -94,8 +97,6 @@ public class TouchService extends AccessibilityService {
     private void initFaceDetector() {
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
-                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
                 .build();
         mFaceDetector = FaceDetection.getClient(options);
     }
@@ -106,13 +107,13 @@ public class TouchService extends AccessibilityService {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
-        int mWidth = metrics.widthPixels / 3;
-        int mHeight = metrics.heightPixels / 3;
-        int mDensity = metrics.densityDpi;
+        
+        int capW = metrics.widthPixels / 3;
+        int capH = metrics.heightPixels / 3;
 
-        mImageReader = ImageReader.newInstance(mWidth, mHeight, PixelFormat.RGBA_8888, 2);
+        mImageReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2);
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision",
-                mWidth, mHeight, mDensity, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 mImageReader.getSurface(), null, null);
 
         mImageReader.setOnImageAvailableListener(reader -> {
@@ -128,21 +129,23 @@ public class TouchService extends AccessibilityService {
         InputImage inputImage = InputImage.fromMediaImage(image, 0);
         Task<List<Face>> result = mFaceDetector.process(inputImage)
                 .addOnSuccessListener(faces -> {
-                    for (Face face : faces) {
-                        if (isConnected) {
-                            try {
-                                // 🔥 GỬI 16 BYTES THÔ VÀO C++ (ZERO JSON)
-                                mOut.writeFloat(face.getBoundingBox().exactCenterX() * 3);
-                                mOut.writeFloat(face.getBoundingBox().exactCenterY() * 3);
-                                mOut.writeFloat(face.getBoundingBox().height() * 3);
-                                mOut.writeFloat(face.getHeadEulerAngleX());
-                            } catch (Exception e) {}
-                        }
+                    if (isConnected && !faces.isEmpty()) {
+                        Face face = faces.get(0);
+                        float x = face.getBoundingBox().exactCenterX() * 3;
+                        float y = face.getBoundingBox().exactCenterY() * 3;
+                        float ho = face.getBoundingBox().height() * 3;
+                        float pitch = face.getHeadEulerAngleX();
+                        
+                        // 🛡️ GỬI 16 BYTES THEO CHUẨN LITTLE-ENDIAN (KHỚP VỚI C++)
+                        ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+                        bb.putFloat(x);
+                        bb.putFloat(y);
+                        bb.putFloat(ho);
+                        bb.putFloat(pitch);
+                        try { mOut.write(bb.array()); } catch (Exception e) {}
                     }
                 });
     }
-
-    private void startTouchServer() {} // Dummy, C++ handles the server now
 
     public void dispatchSwipe(int x, int y, int duration) {
         Path path = new Path();
