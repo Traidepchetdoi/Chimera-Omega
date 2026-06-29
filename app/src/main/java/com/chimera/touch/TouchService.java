@@ -23,34 +23,62 @@ import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
-import org.java_websocket.server.WebSocketServer;
-import org.java_websocket.WebSocket;
-import org.java_websocket.handshake.ClientHandshake;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.util.List;
+import java.net.Socket;
+import java.io.DataOutputStream;
+import java.io.DataInputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "ChimeraZero";
+    private static final String TAG = "OmegaBareMetal";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
     private FaceDetector mFaceDetector;
-    private MyWebSocketClient mWsClient; 
     private Handler mHandler = new Handler();
-    private WsServer mWsServer;
     
-    // ⚡ BIẾN LƯU TỶ LỆ MÀN HÌNH (Dùng để nhân ngược tọa độ)
-    private int mScreenWidth, mScreenHeight;
-    private int mCaptureWidth, mCaptureHeight;
+    // 🔥 RAW TCP BINARY BRIDGE
+    private Socket mSocket;
+    private DataOutputStream mOut;
+    private DataInputStream mIn;
+    private boolean isConnected = false;
+    private Thread mReadThread;
 
     @Override
     public void onServiceConnected() {
-        Log.i(TAG, "⚡ Zero-Latency Service Connected");
         startTouchServer(); 
         initFaceDetector(); 
+        connectToBareMetalCore();
+    }
+
+    private void connectToBareMetalCore() {
+        new Thread(() -> {
+            try {
+                mSocket = new Socket("127.0.0.1", 8082);
+                mSocket.setTcpNoDelay(true); // Tắt thuật toán Nagle
+                mOut = new DataOutputStream(mSocket.getOutputStream());
+                mIn = new DataInputStream(mSocket.getInputStream());
+                isConnected = true;
+                Log.i(TAG, "🔥 RAW TCP BINARY LINK ESTABLISHED");
+                
+                // Luồng đọc lệnh vuốt nhị phân từ C++
+                mReadThread = new Thread(() -> {
+                    byte[] buffer = new byte[16];
+                    while (isConnected) {
+                        try {
+                            mIn.readFully(buffer);
+                            ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
+                            float sx = bb.getFloat();
+                            float sy = bb.getFloat();
+                            float ex = bb.getFloat();
+                            float ey = bb.getFloat();
+                            dispatchSwipe((int)ex, (int)ey, 1);
+                        } catch (Exception e) { break; }
+                    }
+                });
+                mReadThread.start();
+            } catch (Exception e) { Log.e(TAG, "Core connection failed"); }
+        }).start();
     }
 
     @Override
@@ -78,18 +106,13 @@ public class TouchService extends AccessibilityService {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
-        
-        mScreenWidth = metrics.widthPixels;
-        mScreenHeight = metrics.heightPixels;
-        
-        // ⚡ GIẢM 3 LẦN ĐỘ PHÂN GIẢI (Tăng tốc ML Kit gấp 9 lần)
-        mCaptureWidth = mScreenWidth / 3;
-        mCaptureHeight = mScreenHeight / 3;
+        int mWidth = metrics.widthPixels / 3;
+        int mHeight = metrics.heightPixels / 3;
         int mDensity = metrics.densityDpi;
 
-        mImageReader = ImageReader.newInstance(mCaptureWidth, mCaptureHeight, PixelFormat.RGBA_8888, 2);
-        mVirtualDisplay = mMediaProjection.createVirtualDisplay("ChimeraZero",
-                mCaptureWidth, mCaptureHeight, mDensity, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+        mImageReader = ImageReader.newInstance(mWidth, mHeight, PixelFormat.RGBA_8888, 2);
+        mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision",
+                mWidth, mHeight, mDensity, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 mImageReader.getSurface(), null, null);
 
         mImageReader.setOnImageAvailableListener(reader -> {
@@ -99,11 +122,6 @@ public class TouchService extends AccessibilityService {
                 image.close();
             }
         }, mHandler);
-
-        try {
-            mWsClient = new MyWebSocketClient(new URI("ws://127.0.0.1:8082"));
-            mWsClient.connect();
-        } catch (Exception e) { Log.e(TAG, "WS Err: " + e.getMessage()); }
     }
 
     private void processImage(@NonNull Image image) {
@@ -111,70 +129,35 @@ public class TouchService extends AccessibilityService {
         Task<List<Face>> result = mFaceDetector.process(inputImage)
                 .addOnSuccessListener(faces -> {
                     for (Face face : faces) {
-                        if (mWsClient != null && mWsClient.isOpen()) {
-                            // ⚡ NHÂN 3 TỌA ĐỘ ĐỂ KHỚP VỚI MÀN HÌNH THẬT
-                            float x = face.getBoundingBox().exactCenterX() * 3;
-                            float y = face.getBoundingBox().exactCenterY() * 3;
-                            float ho = face.getBoundingBox().height() * 3;
-                            float pitch = face.getHeadEulerAngleX(); 
-
-                            String json = String.format(
-                                "{\"TARGET\":true, \"x\":%.1f, \"y\":%.1f, \"headOffset\":%.1f, \"pitch\":%.1f}",
-                                x, y, ho, pitch
-                            );
-                            mWsClient.send(json);
+                        if (isConnected) {
+                            try {
+                                // 🔥 GỬI 16 BYTES THÔ VÀO C++ (ZERO JSON)
+                                mOut.writeFloat(face.getBoundingBox().exactCenterX() * 3);
+                                mOut.writeFloat(face.getBoundingBox().exactCenterY() * 3);
+                                mOut.writeFloat(face.getBoundingBox().height() * 3);
+                                mOut.writeFloat(face.getHeadEulerAngleX());
+                            } catch (Exception e) {}
                         }
                     }
                 });
     }
 
-    private void startTouchServer() {
-        mWsServer = new WsServer(new InetSocketAddress(8083));
-        mWsServer.start();
-    }
+    private void startTouchServer() {} // Dummy, C++ handles the server now
 
-    // ⚡ ÉP ANDROID VUỐT VỚI TỐC ĐỘ ÁNH SÁNG (DURATION = 1ms)
     public void dispatchSwipe(int x, int y, int duration) {
         Path path = new Path();
         path.moveTo(x, y);
-        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 1); // 1ms Teleport
-        GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
-        dispatchGesture(gesture, null, null);
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, Math.max(duration, 1));
+        dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
     @Override public void onInterrupt() {}
     @Override public void onDestroy() {
         super.onDestroy();
+        isConnected = false;
         if (mVirtualDisplay != null) mVirtualDisplay.release();
         if (mMediaProjection != null) mMediaProjection.stop();
-        if (mWsServer != null) try { mWsServer.stop(); } catch (Exception e) {}
-        if (mWsClient != null) mWsClient.close();
+        try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-
-    private class MyWebSocketClient extends WebSocketClient {
-        public MyWebSocketClient(URI serverUri) { super(serverUri); }
-        @Override public void onOpen(ServerHandshake h) { Log.i(TAG, "⚡ Vision Connected"); }
-        @Override public void onMessage(String msg) {}
-        @Override public void onClose(int c, String r, boolean b) {}
-        @Override public void onError(Exception ex) {}
-    }
-
-    private class WsServer extends WebSocketServer {
-        public WsServer(InetSocketAddress addr) { super(addr); }
-        @Override public void onOpen(WebSocket conn, ClientHandshake h) {}
-        @Override public void onMessage(WebSocket conn, String msg) {
-            try {
-                String[] p = msg.split(",");
-                if (p.length == 4 && msg.startsWith("GESTURE")) {
-                    int tx = (int) Float.parseFloat(p[2]);
-                    int ty = (int) Float.parseFloat(p[3]);
-                    dispatchSwipe(tx, ty, 1);
-                }
-            } catch (Exception e) {}
-        }
-        @Override public void onClose(WebSocket conn, int c, String r, boolean b) {}
-        @Override public void onError(WebSocket conn, Exception e) {}
-        @Override public void onStart() {}
-    }
-                                                                }
+}
