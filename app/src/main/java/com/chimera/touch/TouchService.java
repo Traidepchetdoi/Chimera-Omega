@@ -3,6 +3,9 @@ package com.chimera.touch;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Intent;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -12,8 +15,11 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import androidx.annotation.NonNull;
@@ -34,7 +40,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaInputSafe";
+    private static final String TAG = "OmegaHologram";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -47,13 +53,90 @@ public class TouchService extends AccessibilityService {
     private boolean isConnected = false;
     
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
-    private volatile boolean isGestureRunning = false; // 🛡️ KHÓA CHỐNG CHỒNG CHÉP GESTURE
+    private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
+
+    // 🕶️ HOLOGRAPHIC HUD VARIABLES
+    private WindowManager mWindowManager;
+    private View mHudView;
+    private float hudX = 600, hudY = 1332, hudHo = 50, hudPitch = 0;
+    private boolean isTargetVisible = false;
 
     @Override
     public void onServiceConnected() {
         initFaceDetector(); 
+        initHolographicHud(); // 🕶️ KHỞI TẠO KÍNH NGẮM 3D
         connectToBareMetalCore();
+    }
+
+    private void initHolographicHud() {
+        // Kiểm tra quyền Vẽ đè (Display over other apps)
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(TAG, "⚠️ CHƯA CÓ QUYỀN VẼ ĐÈ. HUD SẼ BỊ TẮT.");
+            return;
+        }
+
+        mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        mHudView = new View(this) {
+            @Override
+            protected void onDraw(Canvas canvas) {
+                super.onDraw(canvas);
+                if (!isTargetVisible) return;
+
+                Paint paint = new Paint();
+                paint.setAntiAlias(true);
+                
+                // 🦴 TÁI TẠO BỘ XƯƠNG 3D (VITRUVIAN KINEMATICS)
+                float safe_ho = Math.max(hudHo, 5.0f);
+                float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
+                float pitchRad = hudPitch * 0.0174533f;
+                float postureShift = (float)Math.sin(pitchRad) * safe_ho * 1.5f;
+                
+                float finalY = hudY + perspectiveOffset + postureShift;
+                
+                // 1. Vẽ Đường Trục Xương Sống (Spinal Axis) - Màu Xanh Lá
+                paint.setColor(Color.GREEN);
+                paint.setStrokeWidth(3.0f);
+                paint.setAlpha(180);
+                float spineLength = safe_ho * 2.5f;
+                float spineEndY = finalY + (float)Math.sin(pitchRad) * spineLength;
+                // Giả lập trục X dựa trên Pitch để tạo cảm giác 3D
+                canvas.drawLine(hudX, finalY - (safe_ho * 0.5f), hudX, spineEndY, paint); 
+                
+                // 2. Vẽ Tâm ngắm Vật lý (Ballistic Crosshair) - Màu Đỏ
+                paint.setColor(Color.RED);
+                paint.setStrokeWidth(2.5f);
+                paint.setAlpha(255);
+                canvas.drawLine(hudX - 15, finalY, hudX + 15, finalY, paint);
+                canvas.drawLine(hudX, finalY - 15, hudX, finalY + 15, paint);
+                
+                // 3. Vẽ Vòng tròn Vùng hút (FOV Circle)
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(1.5f);
+                paint.setColor(Color.YELLOW);
+                paint.setAlpha(100);
+                canvas.drawCircle(hudX, finalY, 60.0f, paint); // SILK_LOCK_RADIUS = 60
+            }
+        };
+        
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | 
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS |
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        );
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+        
+        try {
+            mWindowManager.addView(mHudView, params);
+            Log.i(TAG, "🕶️ HOLOGRAPHIC HUD DEPLOYED.");
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi thêm HUD: " + e.getMessage());
+        }
     }
 
     private void connectToBareMetalCore() {
@@ -65,7 +148,7 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔥 INPUT-SAFE LINK ESTABLISHED");
+                    Log.i(TAG, "🔥 BARE-METAL LINK ESTABLISHED");
                     
                     byte[] buffer = new byte[16];
                     while (isConnected) {
@@ -168,37 +251,40 @@ public class TouchService extends AccessibilityService {
                             float ho = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
                             float pitch = bestTarget.getHeadEulerAngleX();
                             
+                            // 🕶️ CẬP NHẬT DỮ LIỆU CHO KÍNH NGẮM HOLOGRAM
+                            hudX = x;
+                            hudY = y;
+                            hudHo = ho;
+                            hudPitch = pitch;
+                            isTargetVisible = true;
+                            if (mHudView != null) mHudView.invalidate(); // VẼ LẠI HUD
+                            
                             ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
                             bb.putFloat(x); bb.putFloat(y); bb.putFloat(ho); bb.putFloat(pitch);
                             try { mOut.write(bb.array()); } catch (Exception e) {}
                         }
+                    } else {
+                        isTargetVisible = false;
+                        if (mHudView != null) mHudView.invalidate(); // XÓA HUD KHI MẤT MỤC TIÊU
                     }
                 })
                 .addOnCompleteListener(task -> isProcessing.set(false));
     }
 
-    // 🛡️ SAFE DRAG VỚI CALLBACK (CHỐNG TRÀN INPUTDISPATCHER & ĐƠ MÁY)
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
-        if (isGestureRunning) return; // 🚫 NẾU GESTURE TRƯỚC CHƯA XONG -> BỎ QUA (CHỐNG SPAM)
+        if (isGestureRunning) return; 
         isGestureRunning = true;
 
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
-        // 50ms: Đồng bộ với van xả C++, an toàn tuyệt đối cho Kernel
         GestureDescription.StrokeDescription stroke = 
             new GestureDescription.StrokeDescription(path, 0, 50);
             
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
-            @Override
-            public void onCompleted(GestureDescription gestureDescription) {
-                isGestureRunning = false; // 🔓 MỞ KHÓA CHO LỆNH TIẾP THEO
-            }
-            @Override
-            public void onCancelled(GestureDescription gestureDescription) {
-                isGestureRunning = false;
-            }
+            @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
+            @Override public void onCancelled(GestureDescription gestureDescription) { isGestureRunning = false; }
         }, null);
     }
 
@@ -207,8 +293,11 @@ public class TouchService extends AccessibilityService {
     @Override public void onDestroy() {
         super.onDestroy();
         isConnected = false;
+        if (mHudView != null && mWindowManager != null) {
+            try { mWindowManager.removeView(mHudView); } catch (Exception e) {}
+        }
         if (mVirtualDisplay != null) mVirtualDisplay.release();
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-}
+                                                          }
