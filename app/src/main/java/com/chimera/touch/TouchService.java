@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaRealTime";
+    private static final String TAG = "OmegaOmniscience";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -46,7 +46,6 @@ public class TouchService extends AccessibilityService {
     private InputStream mIn;
     private boolean isConnected = false;
     
-    // 🚀 REAL-TIME FRAME DROPPER (Chống nghẽn ống dẫn thị giác)
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private float SCALE_FACTOR = 4.0f; 
 
@@ -65,7 +64,7 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔥 TACHYON LINK ESTABLISHED");
+                    Log.i(TAG, "🔥 OMNISCIENCE LINK ESTABLISHED");
                     
                     byte[] buffer = new byte[16];
                     while (isConnected) {
@@ -80,7 +79,6 @@ public class TouchService extends AccessibilityService {
                         float sy = bb.getFloat(4);
                         float ex = bb.getFloat(8);
                         float ey = bb.getFloat(12);
-                        
                         dispatchMicroDrag(sx, sy, ex, ey);
                     }
                 } catch (Exception e) { 
@@ -115,7 +113,6 @@ public class TouchService extends AccessibilityService {
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
         
-        // 🔭 DOWNSCALE 1/4 (Giảm 75% tải cho ML Kit, tăng gấp đôi FPS)
         int capW = metrics.widthPixels / 4;
         int capH = metrics.heightPixels / 4;
         SCALE_FACTOR = 4.0f;
@@ -126,13 +123,11 @@ public class TouchService extends AccessibilityService {
                 mImageReader.getSurface(), null, null);
 
         mImageReader.setOnImageAvailableListener(reader -> {
-            // 🛡️ NẾU ML KIT ĐANG XỬ LÝ -> VỨT BỎ FRAME MỚI (ZERO BUFFER LAG)
             if (isProcessing.get()) {
                 Image dropImage = reader.acquireLatestImage();
                 if (dropImage != null) dropImage.close();
                 return;
             }
-            
             Image image = reader.acquireLatestImage();
             if (image != null) {
                 isProcessing.set(true);
@@ -147,34 +142,51 @@ public class TouchService extends AccessibilityService {
         Task<List<Face>> result = mFaceDetector.process(inputImage)
                 .addOnSuccessListener(faces -> {
                     if (isConnected && !faces.isEmpty()) {
-                        Face face = faces.get(0);
-                        // Nhân lại với SCALE_FACTOR để ra tọa độ màn hình thật
-                        float x = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
-                        float y = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                        float ho = face.getBoundingBox().height() * SCALE_FACTOR;
-                        float pitch = face.getHeadEulerAngleX();
+                        // 🧠 TRÍ TUỆ CHIẾN TRƯỜNG: CHỌN KẺ GẦN TÂM NGẮM NHẤT
+                        float screenCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
+                        float screenCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
                         
-                        ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
-                        bb.putFloat(x);
-                        bb.putFloat(y);
-                        bb.putFloat(ho);
-                        bb.putFloat(pitch);
-                        try { mOut.write(bb.array()); } catch (Exception e) {}
+                        Face bestTarget = null;
+                        float minDistSq = Float.MAX_VALUE;
+                        
+                        for (Face face : faces) {
+                            float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
+                            float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
+                            float dx = fx - screenCenterX;
+                            float dy = fy - screenCenterY;
+                            float distSq = dx*dx + dy*dy;
+                            
+                            if (distSq < minDistSq) {
+                                minDistSq = distSq;
+                                bestTarget = face;
+                            }
+                        }
+                        
+                        if (bestTarget != null) {
+                            float x = bestTarget.getBoundingBox().exactCenterX() * SCALE_FACTOR;
+                            float y = bestTarget.getBoundingBox().exactCenterY() * SCALE_FACTOR;
+                            float ho = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
+                            float pitch = bestTarget.getHeadEulerAngleX();
+                            
+                            ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+                            bb.putFloat(x);
+                            bb.putFloat(y);
+                            bb.putFloat(ho);
+                            bb.putFloat(pitch);
+                            try { mOut.write(bb.array()); } catch (Exception e) {}
+                        }
                     }
                 })
-                .addOnCompleteListener(task -> {
-                    // 🔓 MỞ KHÓA CHO FRAME TIẾP THEO (Đảm bảo luôn lấy frame mới nhất)
-                    isProcessing.set(false);
-                });
+                .addOnCompleteListener(task -> isProcessing.set(false));
     }
 
-    // 🛡️ MICRO-DRAG INJECTION (BYPASS KERNEL TOUCH SLOPE LIMIT)
+    // 🛡️ HUMAN DRAG 40ms (FIX LIỆT NÚT & KHỰNG CHẠM TUYỆT ĐỐI)
     public void dispatchMicroDrag(float sx, float sy, float ex, float ey) {
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         GestureDescription.StrokeDescription stroke = 
-            new GestureDescription.StrokeDescription(path, 0, 20);
+            new GestureDescription.StrokeDescription(path, 0, 40);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 
