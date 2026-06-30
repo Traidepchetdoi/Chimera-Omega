@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaOmniscience";
+    private static final String TAG = "OmegaInputSafe";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -47,6 +47,7 @@ public class TouchService extends AccessibilityService {
     private boolean isConnected = false;
     
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
+    private volatile boolean isGestureRunning = false; // 🛡️ KHÓA CHỐNG CHỒNG CHÉP GESTURE
     private float SCALE_FACTOR = 4.0f; 
 
     @Override
@@ -64,7 +65,7 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔥 OMNISCIENCE LINK ESTABLISHED");
+                    Log.i(TAG, "🔥 INPUT-SAFE LINK ESTABLISHED");
                     
                     byte[] buffer = new byte[16];
                     while (isConnected) {
@@ -79,7 +80,7 @@ public class TouchService extends AccessibilityService {
                         float sy = bb.getFloat(4);
                         float ex = bb.getFloat(8);
                         float ey = bb.getFloat(12);
-                        dispatchMicroDrag(sx, sy, ex, ey);
+                        dispatchSafeDrag(sx, sy, ex, ey);
                     }
                 } catch (Exception e) { 
                     isConnected = false;
@@ -142,7 +143,6 @@ public class TouchService extends AccessibilityService {
         Task<List<Face>> result = mFaceDetector.process(inputImage)
                 .addOnSuccessListener(faces -> {
                     if (isConnected && !faces.isEmpty()) {
-                        // 🧠 TRÍ TUỆ CHIẾN TRƯỜNG: CHỌN KẺ GẦN TÂM NGẮM NHẤT
                         float screenCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float screenCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
                         
@@ -169,10 +169,7 @@ public class TouchService extends AccessibilityService {
                             float pitch = bestTarget.getHeadEulerAngleX();
                             
                             ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
-                            bb.putFloat(x);
-                            bb.putFloat(y);
-                            bb.putFloat(ho);
-                            bb.putFloat(pitch);
+                            bb.putFloat(x); bb.putFloat(y); bb.putFloat(ho); bb.putFloat(pitch);
                             try { mOut.write(bb.array()); } catch (Exception e) {}
                         }
                     }
@@ -180,14 +177,29 @@ public class TouchService extends AccessibilityService {
                 .addOnCompleteListener(task -> isProcessing.set(false));
     }
 
-    // 🛡️ HUMAN DRAG 40ms (FIX LIỆT NÚT & KHỰNG CHẠM TUYỆT ĐỐI)
-    public void dispatchMicroDrag(float sx, float sy, float ex, float ey) {
+    // 🛡️ SAFE DRAG VỚI CALLBACK (CHỐNG TRÀN INPUTDISPATCHER & ĐƠ MÁY)
+    public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
+        if (isGestureRunning) return; // 🚫 NẾU GESTURE TRƯỚC CHƯA XONG -> BỎ QUA (CHỐNG SPAM)
+        isGestureRunning = true;
+
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
+        
+        // 50ms: Đồng bộ với van xả C++, an toàn tuyệt đối cho Kernel
         GestureDescription.StrokeDescription stroke = 
-            new GestureDescription.StrokeDescription(path, 0, 40);
-        dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
+            new GestureDescription.StrokeDescription(path, 0, 50);
+            
+        dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
+            @Override
+            public void onCompleted(GestureDescription gestureDescription) {
+                isGestureRunning = false; // 🔓 MỞ KHÓA CHO LỆNH TIẾP THEO
+            }
+            @Override
+            public void onCancelled(GestureDescription gestureDescription) {
+                isGestureRunning = false;
+            }
+        }, null);
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
