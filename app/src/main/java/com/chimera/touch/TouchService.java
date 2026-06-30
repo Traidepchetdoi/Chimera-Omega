@@ -31,9 +31,10 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaTachyon";
+    private static final String TAG = "OmegaRealTime";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -44,6 +45,10 @@ public class TouchService extends AccessibilityService {
     private OutputStream mOut;
     private InputStream mIn;
     private boolean isConnected = false;
+    
+    // 🚀 REAL-TIME FRAME DROPPER (Chống nghẽn ống dẫn thị giác)
+    private AtomicBoolean isProcessing = new AtomicBoolean(false);
+    private float SCALE_FACTOR = 4.0f; 
 
     @Override
     public void onServiceConnected() {
@@ -110,8 +115,10 @@ public class TouchService extends AccessibilityService {
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
         
-        int capW = metrics.widthPixels / 3;
-        int capH = metrics.heightPixels / 3;
+        // 🔭 DOWNSCALE 1/4 (Giảm 75% tải cho ML Kit, tăng gấp đôi FPS)
+        int capW = metrics.widthPixels / 4;
+        int capH = metrics.heightPixels / 4;
+        SCALE_FACTOR = 4.0f;
 
         mImageReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2);
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision",
@@ -119,8 +126,16 @@ public class TouchService extends AccessibilityService {
                 mImageReader.getSurface(), null, null);
 
         mImageReader.setOnImageAvailableListener(reader -> {
+            // 🛡️ NẾU ML KIT ĐANG XỬ LÝ -> VỨT BỎ FRAME MỚI (ZERO BUFFER LAG)
+            if (isProcessing.get()) {
+                Image dropImage = reader.acquireLatestImage();
+                if (dropImage != null) dropImage.close();
+                return;
+            }
+            
             Image image = reader.acquireLatestImage();
             if (image != null) {
+                isProcessing.set(true);
                 processImage(image);
                 image.close();
             }
@@ -133,9 +148,10 @@ public class TouchService extends AccessibilityService {
                 .addOnSuccessListener(faces -> {
                     if (isConnected && !faces.isEmpty()) {
                         Face face = faces.get(0);
-                        float x = face.getBoundingBox().exactCenterX() * 3;
-                        float y = face.getBoundingBox().exactCenterY() * 3;
-                        float ho = face.getBoundingBox().height() * 3;
+                        // Nhân lại với SCALE_FACTOR để ra tọa độ màn hình thật
+                        float x = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
+                        float y = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
+                        float ho = face.getBoundingBox().height() * SCALE_FACTOR;
                         float pitch = face.getHeadEulerAngleX();
                         
                         ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
@@ -145,6 +161,10 @@ public class TouchService extends AccessibilityService {
                         bb.putFloat(pitch);
                         try { mOut.write(bb.array()); } catch (Exception e) {}
                     }
+                })
+                .addOnCompleteListener(task -> {
+                    // 🔓 MỞ KHÓA CHO FRAME TIẾP THEO (Đảm bảo luôn lấy frame mới nhất)
+                    isProcessing.set(false);
                 });
     }
 
@@ -153,7 +173,6 @@ public class TouchService extends AccessibilityService {
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
-        // 20ms: Đủ chậm để Kernel không coi là "Flick bạo lực", giải phóng 100% InputDispatcher cho Nút Bắn
         GestureDescription.StrokeDescription stroke = 
             new GestureDescription.StrokeDescription(path, 0, 20);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
