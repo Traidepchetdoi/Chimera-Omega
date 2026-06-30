@@ -30,10 +30,10 @@ import java.io.OutputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.List; // 🛡️ ĐÃ BỔ SUNG IMPORT
+import java.util.List;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaBareMetal";
+    private static final String TAG = "OmegaTrueSwipe";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -70,11 +70,14 @@ public class TouchService extends AccessibilityService {
                             if (count < 0) throw new Exception("EOF");
                             read += count;
                         }
-                        // 🛡️ ĐỌC 16 BYTES THEO CHUẨN LITTLE-ENDIAN CỦA ARM64 C++
+                        // 🧠 ĐỌC 4 TỌA ĐỘ TỪ C++ (START X, START Y, END X, END Y)
                         ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
+                        float sx = bb.getFloat(0);
+                        float sy = bb.getFloat(4);
                         float ex = bb.getFloat(8);
                         float ey = bb.getFloat(12);
-                        dispatchSwipe((int)ex, (int)ey, 1);
+                        
+                        dispatchSwipe(sx, sy, ex, ey);
                     }
                 } catch (Exception e) { 
                     isConnected = false;
@@ -136,7 +139,6 @@ public class TouchService extends AccessibilityService {
                         float ho = face.getBoundingBox().height() * 3;
                         float pitch = face.getHeadEulerAngleX();
                         
-                        // 🛡️ GỬI 16 BYTES THEO CHUẨN LITTLE-ENDIAN (KHỚP VỚI C++)
                         ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
                         bb.putFloat(x);
                         bb.putFloat(y);
@@ -147,10 +149,16 @@ public class TouchService extends AccessibilityService {
                 });
     }
 
-    public void dispatchSwipe(int x, int y, int duration) {
+    // 🚀 TRUE SWIPE (XÉ RÁCH MA SÁT GAME)
+    public void dispatchSwipe(float sx, float sy, float ex, float ey) {
         Path path = new Path();
-        path.moveTo(x, y);
-        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, Math.max(duration, 1));
+        path.moveTo(sx, sy);       
+        path.lineTo(ex, ey);       // 🚨 TẠO RA ĐƯỜNG VUỐT THỰC SỰ (LỰC KÉO)
+        
+        // 15ms: Điểm rơi hoàn hảo để bypass Game Friction
+        GestureDescription.StrokeDescription stroke = 
+            new GestureDescription.StrokeDescription(path, 0, 15);
+            
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 
