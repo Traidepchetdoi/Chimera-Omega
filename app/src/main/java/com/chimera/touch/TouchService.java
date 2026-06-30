@@ -33,7 +33,7 @@ import java.nio.ByteOrder;
 import java.util.List;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaTrueSwipe";
+    private static final String TAG = "OmegaTachyon";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -60,7 +60,7 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔥 RAW TCP BINARY LINK ESTABLISHED");
+                    Log.i(TAG, "🔥 TACHYON LINK ESTABLISHED");
                     
                     byte[] buffer = new byte[16];
                     while (isConnected) {
@@ -70,14 +70,13 @@ public class TouchService extends AccessibilityService {
                             if (count < 0) throw new Exception("EOF");
                             read += count;
                         }
-                        // 🧠 ĐỌC 4 TỌA ĐỘ TỪ C++ (START X, START Y, END X, END Y)
                         ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
                         float sx = bb.getFloat(0);
                         float sy = bb.getFloat(4);
                         float ex = bb.getFloat(8);
                         float ey = bb.getFloat(12);
                         
-                        dispatchSwipe(sx, sy, ex, ey);
+                        dispatchMicroDrag(sx, sy, ex, ey);
                     }
                 } catch (Exception e) { 
                     isConnected = false;
@@ -149,16 +148,14 @@ public class TouchService extends AccessibilityService {
                 });
     }
 
-    // 🚀 TRUE SWIPE (XÉ RÁCH MA SÁT GAME)
-    public void dispatchSwipe(float sx, float sy, float ex, float ey) {
+    // 🛡️ MICRO-DRAG INJECTION (BYPASS KERNEL TOUCH SLOPE LIMIT)
+    public void dispatchMicroDrag(float sx, float sy, float ex, float ey) {
         Path path = new Path();
-        path.moveTo(sx, sy);       
-        path.lineTo(ex, ey);       // 🚨 TẠO RA ĐƯỜNG VUỐT THỰC SỰ (LỰC KÉO)
-        
-        // 15ms: Điểm rơi hoàn hảo để bypass Game Friction
+        path.moveTo(sx, sy);
+        path.lineTo(ex, ey);
+        // 20ms: Đủ chậm để Kernel không coi là "Flick bạo lực", giải phóng 100% InputDispatcher cho Nút Bắn
         GestureDescription.StrokeDescription stroke = 
-            new GestureDescription.StrokeDescription(path, 0, 15);
-            
+            new GestureDescription.StrokeDescription(path, 0, 20);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
     }
 
