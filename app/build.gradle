@@ -11,21 +11,28 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 1
-        versionName "OMEGA-ZERO-CONFIG"
+        versionName "OMEGA-IMMUTABLE-DNA"
         multiDexEnabled true
     }
 
-    // ⚡ ĐÃ CẮT BỎ HOÀN TOÀN signingConfigs
-    // Gradle sẽ tự động dùng debug.keystore ngầm định của máy chủ Ubuntu
-    
+    // 🧬 DNA BẤT BIẾN (CHỮ KÝ VĨNH CỬU)
+    signingConfigs {
+        omega {
+            storeFile file('../.github/keystore/omega.keystore')
+            storePassword 'omega123'
+            keyAlias 'omega'
+            keyPassword 'omega123'
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.omega
             minifyEnabled false
-            // ⚡ ĐÃ CẮT BỎ signingConfig
         }
         debug {
+            signingConfig signingConfigs.omega
             minifyEnabled false
-            // ⚡ ĐÃ CẮT BỎ signingConfig
         }
     }
     
@@ -41,6 +48,5 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.mlkit:face-detection:16.1.5'
-    
     implementation 'androidx.annotation:annotation:1.7.0'
 }
