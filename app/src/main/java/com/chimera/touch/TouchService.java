@@ -49,9 +49,9 @@ public class TouchService extends AccessibilityService {
     private float SCALE_FACTOR = 4.0f; 
     private long lastFrameTime = 0;
     
-    // 🛡️ BIẾN TOÀN CỤC (Đã treo ở đây để GestureResultCallback có quyền sửa, triệt tiêu 100% lỗi Java Scope)
-    private float lastEndX = -1; 
-    private float lastEndY = -1; 
+    // 🛡️ BIẾN TOÀN CỤC (Đặt tên riêng biệt 'm' để tránh mọi xung đột biến cục bộ)
+    private float mLastEndX = -1f; 
+    private float mLastEndY = -1f; 
 
     @Override
     public void onServiceConnected() {
@@ -119,7 +119,6 @@ public class TouchService extends AccessibilityService {
         
         mImageReader.setOnImageAvailableListener(reader -> {
             long now = System.currentTimeMillis();
-            // 🦅 APEX PREDATOR ECO: Quét 40ms/frame (25 FPS) - Mát máy, tiết kiệm pin
             if (now - lastFrameTime < 40) {
                 Image drop = reader.acquireLatestImage();
                 if (drop != null) drop.close();
@@ -178,13 +177,13 @@ public class TouchService extends AccessibilityService {
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         
-        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Chống Teleport)
-        if (lastEndX != -1) {
-            sx = lastEndX;
-            sy = lastEndY;
+        // 🛡️ ĐỒNG BỘ TỌA ĐỘ
+        if (mLastEndX != -1f) {
+            sx = mLastEndX;
+            sy = mLastEndY;
         }
         
-        // 🚫 PHYSICAL UI SHIELD (LÁ CHẮN VẬT LÝ - BẢO VỆ JOYSTICK & NÚT BẮN)
+        // 🚫 PHYSICAL UI SHIELD (LÁ CHẮN VẬT LÝ)
         float safeTopZone = getResources().getDisplayMetrics().heightPixels * 0.65f;
         if (sy > safeTopZone) sy = safeTopZone;
         if (ey > safeTopZone) ey = safeTopZone;
@@ -195,7 +194,6 @@ public class TouchService extends AccessibilityService {
         
         if (dist < 8.0f) return; 
         
-        // 🚀 TỐC ĐỘ PHẢN HỒI TỨC THÌ (30ms)
         int duration = 30; 
         
         isGestureRunning = true;
@@ -203,17 +201,21 @@ public class TouchService extends AccessibilityService {
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
+        // 🧊 ĐÓNG BĂNG TỌA ĐỘ (Bypass luật Effectively Final của Java)
+        final float fEx = ex;
+        final float fEy = ey;
+        
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, duration);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { 
                 isGestureRunning = false; 
-                lastEndX = ex; 
-                lastEndY = ey; 
+                mLastEndX = fEx; 
+                mLastEndY = fEy; 
             }
             @Override public void onCancelled(GestureDescription gestureDescription) { 
                 isGestureRunning = false; 
-                lastEndX = -1; 
-                lastEndY = -1; 
+                mLastEndX = -1f; 
+                mLastEndY = -1f; 
             }
         }, null);
     }
