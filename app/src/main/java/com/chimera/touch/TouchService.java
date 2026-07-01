@@ -179,14 +179,20 @@ public class TouchService extends AccessibilityService {
             sy = lastEndY;
         }
         
+        // 🚫 PHYSICAL UI SHIELD (LÁ CHẮN VẬT LÝ - BẢO VỆ JOYSTICK & NÚT BẮN)
+        // Ép buộc mọi cú vuốt của Aimbot CHỈ ĐƯỢC diễn ra ở 65% màn hình phía trên.
+        // 35% màn hình phía dưới (Nút Bắn, Nhảy, Ngồi, Joystick) là Vùng Bất Khả Xâm Phạm.
+        float safeTopZone = getResources().getDisplayMetrics().heightPixels * 0.65f;
+        if (sy > safeTopZone) sy = safeTopZone;
+        if (ey > safeTopZone) ey = safeTopZone;
+        
         float dx = ex - sx;
         float dy = ey - sy;
         float dist = (float)Math.sqrt(dx*dx + dy*dy);
         
-        if (dist < 10.0f) return; // Chặn vuốt quá nhỏ
+        if (dist < 8.0f) return; // Chặn vuốt quá nhỏ
         
-        // 🚀 TỐC ĐỘ PHẢN HỒI TỨC THÌ (30ms - Nhanh nhất Android cho phép)
-        // Giúp C++ bẻ gãy lực vuốt của User ngay lập tức mà không bị InputDispatcher làm trễ
+        // 🚀 TỐC ĐỘ PHẢN HỒI TỨC THÌ (30ms)
         int duration = 30; 
         
         isGestureRunning = true;
