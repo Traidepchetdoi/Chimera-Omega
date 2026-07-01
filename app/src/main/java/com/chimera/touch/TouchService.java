@@ -49,7 +49,7 @@ public class TouchService extends AccessibilityService {
     private float SCALE_FACTOR = 4.0f; 
     private long lastFrameTime = 0;
     
-    // 🛡️ BIẾN TOÀN CỤC (Đặt tên riêng biệt 'm' để tránh mọi xung đột biến cục bộ)
+    // 🛡️ BIẾN TOÀN CỤC (Chống lỗi Effectively Final của Java)
     private float mLastEndX = -1f; 
     private float mLastEndY = -1f; 
 
@@ -147,6 +147,7 @@ public class TouchService extends AccessibilityService {
                     float bestX = -1, bestY = -1, bestHo = 40.0f;
                     boolean found = false;
 
+                    // PHA 1: ML KIT (Tìm mặt thật)
                     if (isConnected && !faces.isEmpty()) {
                         float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
@@ -165,9 +166,53 @@ public class TouchService extends AccessibilityService {
                         }
                     }
 
+                    // PHA 2: RED BLOOD SCANLINE (Fallback khi ML Kit mù do Mũ bảo hiểm)
+                    if (!found && isConnected) {
+                        Image.Plane plane = image.getPlanes()[0];
+                        java.nio.ByteBuffer buffer = plane.getBuffer();
+                        int pixelStride = plane.getPixelStride();
+                        int rowStride = plane.getRowStride();
+                        int width = image.getWidth();
+                        int height = image.getHeight();
+                        
+                        long sumX = 0, sumY = 0;
+                        int count = 0;
+                        
+                        // Quét 5 đường ngang ở vùng giữa màn hình (Nơi Thanh máu / Tên địch hiện)
+                        int[] scanLines = {height/4, height/3, height/2, height*2/3, height*3/4};
+                        for (int y : scanLines) {
+                            int rowOffset = y * rowStride;
+                            for (int x = width/6; x < (width*5/6); x += 4) { // Bước nhảy 4px tiết kiệm CPU
+                                int offset = rowOffset + x * pixelStride;
+                                if (offset + 2 >= buffer.capacity()) continue;
+                                int r = buffer.get(offset) & 0xFF;
+                                int g = buffer.get(offset + 1) & 0xFF;
+                                int b = buffer.get(offset + 2) & 0xFF;
+                                
+                                // Phát hiện Màu ĐỎ RỰC (Thanh máu địch)
+                                if (r > 160 && g < 80 && b < 80) {
+                                    sumX += x; sumY += y; count++;
+                                }
+                            }
+                        }
+                        
+                        // Nếu tìm thấy đủ cụm màu đỏ -> Coi đó là Đầu địch
+                        if (count > 4) {
+                            bestX = (sumX / count) * SCALE_FACTOR;
+                            bestY = (sumY / count) * SCALE_FACTOR;
+                            bestHo = 50.0f;
+                            found = true;
+                        }
+                    }
+
                     if (found) {
                         ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
-                        bb.putFloat(bestX); bb.putFloat(bestY); bb.putFloat(bestHo); bb.putFloat(0.0f);
+                        bb.putFloat(bestX); bb.putFloat(bestY); bb.putFloat(bestHo); bb.putFloat(1.0f); // 1.0f = Có target
+                        try { mOut.write(bb.array()); } catch (Exception e) {}
+                    } else {
+                        // Gửi tín hiệu MẤT TARGET (0.0f) để C++ tắt lò xo
+                        ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+                        bb.putFloat(0); bb.putFloat(0); bb.putFloat(0); bb.putFloat(0.0f); 
                         try { mOut.write(bb.array()); } catch (Exception e) {}
                     }
                 })
@@ -191,18 +236,14 @@ public class TouchService extends AccessibilityService {
         float dy = ey - sy;
         float dist = (float)Math.sqrt(dx*dx + dy*dy);
         
-        // Chặn vuốt < 15px (Chống Spam Tap)
         if (dist < 15.0f) return; 
         
-        // ⚡ ONE-SHOT DURATION: Tốc độ tỉ lệ thuận với khoảng cách. 
-        // Vuốt xa thì nhanh (Flick), vuốt gần thì chậm (để Game hãm phanh).
-        int duration = 35 + (int)(dist * 0.5f); 
-        if (duration > 90) duration = 90;
+        int duration = 30; 
         
         isGestureRunning = true;
         Path path = new Path();
         path.moveTo(sx, sy);
-        path.lineTo(ex, ey); // 🎯 Quỹ đạo thẳng tắp, không cong vẹo
+        path.lineTo(ex, ey);
         
         final float fEx = ex;
         final float fEy = ey;
