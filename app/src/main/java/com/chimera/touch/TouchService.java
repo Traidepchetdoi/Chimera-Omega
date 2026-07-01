@@ -346,7 +346,7 @@ public class TouchService extends AccessibilityService {
         path.lineTo(ex, ey);
         
         GestureDescription.StrokeDescription stroke = 
-            new GestureDescription.StrokeDescription(path, 0, 50);
+            new GestureDescription.StrokeDescription(path, 0, 30);
             
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
