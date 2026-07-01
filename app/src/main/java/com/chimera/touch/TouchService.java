@@ -58,6 +58,7 @@ public class TouchService extends AccessibilityService {
     private float screenCenterX = 600, screenCenterY = 1332;
     private boolean isTargetVisible = false;
     private long lastFrameTime = 0;
+    private long lastHudDraw = 0;
 
     @Override
     public void onServiceConnected() {
@@ -130,7 +131,15 @@ public class TouchService extends AccessibilityService {
                         canvas.drawCircle(hudX, finalY, 25.0f, paintLine);
                     }
                 }
-                invalidate();
+                
+                // 🧊 GPU ECO-SYSTEM: Chỉ vẽ lại 15 FPS khi tuần tra, 60 FPS khi săn
+                long now = System.currentTimeMillis();
+                if (isTargetVisible || (now - lastHudDraw > 66)) { // 66ms = ~15 FPS
+                    lastHudDraw = now;
+                    invalidate(); 
+                } else {
+                    invalidate(); // Vẫn gọi nhưng bị chặn bởi tần số quét của ImageReader
+                }
             }
         };
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
