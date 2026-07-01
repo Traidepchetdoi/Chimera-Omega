@@ -6,6 +6,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -46,7 +47,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaImmortal";
+    private static final String TAG = "OmegaMaster";
     
     // 🌌 CORE VARIABLES
     private MediaProjection mMediaProjection;
@@ -127,9 +128,9 @@ public class TouchService extends AccessibilityService {
             .setPriority(Notification.PRIORITY_LOW)
             .build();
 
-        // Đẩy lên Foreground
+        // 🚀 ĐẨY LÊN FOREGROUND (Khớp cờ mediaProjection với Manifest)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1337, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            startForeground(1337, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         } else {
             startForeground(1337, notification);
         }
@@ -157,7 +158,7 @@ public class TouchService extends AccessibilityService {
                 paint.setAntiAlias(true);
                 paint.setStyle(Paint.Style.STROKE);
                 
-                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (Abyssal Offset)
+                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (Abyssal Offset + Vitruvian Pitch)
                 float safe_ho = Math.max(hudHo, 5.0f);
                 float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
                 float pitchRad = hudPitch * 0.0174533f;
@@ -311,6 +312,7 @@ public class TouchService extends AccessibilityService {
                         Face bestTarget = null;
                         float minDistSq = Float.MAX_VALUE;
                         
+                        // 🧠 TRÍ TUỆ CHIẾN TRƯỜNG: CHỌN KẺ GẦN TÂM NGẮM NHẤT
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
@@ -334,6 +336,7 @@ public class TouchService extends AccessibilityService {
                 .addOnCompleteListener(task -> isProcessing.set(false));
     }
 
+    // 🛡️ SAFE DRAG VỚI CALLBACK (CHỐNG TRÀN INPUTDISPATCHER & ĐƠ MÁY)
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         isGestureRunning = true;
@@ -361,4 +364,4 @@ public class TouchService extends AccessibilityService {
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-}
+                                }
