@@ -3,9 +3,6 @@ package com.chimera.touch;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Intent;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -15,11 +12,7 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
-import android.os.Process;
-import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.view.Gravity;
-import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import androidx.annotation.NonNull;
@@ -52,110 +45,17 @@ public class TouchService extends AccessibilityService {
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
-    private WindowManager mWindowManager;
-    private View mHudView;
-    private float hudX = 600, hudY = 1332, hudHo = 50;
-    private float screenCenterX = 600, screenCenterY = 1332;
-    private boolean isTargetVisible = false;
     private long lastFrameTime = 0;
-    private long lastHudDraw = 0;
 
     @Override
     public void onServiceConnected() {
-        // Ép luồng TCP và Vuốt chạy ở mức ưu tiên cao nhất để không bị delay
-        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY);
         initFaceDetector(); 
-        initReactiveHud(); 
         connectToBareMetalCore();
-    }
-
-    private void initReactiveHud() {
-        if (!Settings.canDrawOverlays(this)) return;
-        mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        DisplayMetrics metrics = new DisplayMetrics();
-        mWindowManager.getDefaultDisplay().getMetrics(metrics);
-        screenCenterX = metrics.widthPixels / 2.0f;
-        screenCenterY = metrics.heightPixels / 2.0f;
-
-        mHudView = new View(this) {
-            @Override
-            protected void onDraw(Canvas canvas) {
-                super.onDraw(canvas);
-                Paint paintShadow = new Paint();
-                paintShadow.setAntiAlias(true);
-                paintShadow.setColor(Color.BLACK);
-                paintShadow.setAlpha(200);
-                paintShadow.setStrokeCap(Paint.Cap.ROUND);
-                Paint paintLine = new Paint();
-                paintLine.setAntiAlias(true);
-                paintLine.setStrokeCap(Paint.Cap.ROUND);
-
-                if (!isTargetVisible) {
-                    float time = System.currentTimeMillis();
-                    float angle = (time % 1500) / 1500.0f * 360.0f;
-                    double rad = Math.toRadians(angle);
-                    float endX = screenCenterX + (float)(Math.cos(rad) * 80.0f);
-                    float endY = screenCenterY + (float)(Math.sin(rad) * 80.0f);
-                    paintLine.setColor(Color.CYAN);
-                    paintLine.setStrokeWidth(3.0f);
-                    paintLine.setAlpha(150);
-                    canvas.drawLine(screenCenterX, screenCenterY, endX, endY, paintLine);
-                    paintLine.setStyle(Paint.Style.STROKE);
-                    paintLine.setStrokeWidth(1.5f);
-                    canvas.drawCircle(screenCenterX, screenCenterY, 80.0f, paintLine);
-                } else {
-                    float safe_ho = Math.max(hudHo, 5.0f);
-                    float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
-                    float finalY = hudY + perspectiveOffset;
-                    float dx = hudX - screenCenterX;
-                    float dy = finalY - screenCenterY;
-                    float dist = (float)Math.sqrt(dx*dx + dy*dy);
-
-                    if (dist < 40.0f) {
-                        paintShadow.setStrokeWidth(12.0f);
-                        canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintShadow);
-                        canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintShadow);
-                        paintLine.setColor(Color.RED);
-                        paintLine.setStrokeWidth(6.0f);
-                        canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintLine);
-                        canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintLine);
-                    } else {
-                        paintShadow.setStrokeWidth(10.0f);
-                        canvas.drawLine(screenCenterX, screenCenterY, hudX, finalY, paintShadow);
-                        paintLine.setColor(Color.YELLOW);
-                        paintLine.setStrokeWidth(5.0f);
-                        canvas.drawLine(screenCenterX, screenCenterY, hudX, finalY, paintLine);
-                        paintLine.setStyle(Paint.Style.STROKE);
-                        paintLine.setStrokeWidth(4.0f);
-                        canvas.drawCircle(hudX, finalY, 25.0f, paintShadow);
-                        canvas.drawCircle(hudX, finalY, 25.0f, paintLine);
-                    }
-                }
-                
-                // 🧊 GPU ECO-SYSTEM: Chỉ vẽ lại 15 FPS khi tuần tra, 60 FPS khi săn
-                long now = System.currentTimeMillis();
-                if (isTargetVisible || (now - lastHudDraw > 66)) { // 66ms = ~15 FPS
-                    lastHudDraw = now;
-                    invalidate(); 
-                } else {
-                    invalidate(); // Vẫn gọi nhưng bị chặn bởi tần số quét của ImageReader
-                }
-            }
-        };
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-            PixelFormat.TRANSLUCENT
-        );
-        params.gravity = Gravity.TOP | Gravity.LEFT;
-        try { mWindowManager.addView(mHudView, params); } catch (Exception e) {}
+        // 🚫 ĐÃ XÓA SỔ initReactiveHud() - GIẢI PHÓNG 100% GPU
     }
 
     private void connectToBareMetalCore() {
         new Thread(() -> {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
             while (true) {
                 try {
                     mSocket = new Socket("127.0.0.1", 8082);
@@ -212,16 +112,12 @@ public class TouchService extends AccessibilityService {
         
         mImageReader.setOnImageAvailableListener(reader -> {
             long now = System.currentTimeMillis();
-            
-            // 🦅 APEX PREDATOR ECO-SYSTEM (Tiết kiệm 85% Pin)
-            // Nếu đang thấy địch (isTargetVisible = true) -> Săn mồi ở 30 FPS (33ms)
-            // Nếu không thấy địch (đang tuần tra) -> Ngủ đông ở 5 FPS (200ms)
-            long interval = isTargetVisible ? 33 : 200; 
-            
+            // 🦅 APEX PREDATOR ECO: 30 FPS khi săn, 5 FPS khi tuần tra
+            long interval = (isProcessing.get()) ? 33 : 200; 
             if (now - lastFrameTime < interval) {
                 Image drop = reader.acquireLatestImage();
                 if (drop != null) drop.close();
-                return; // Thả khung hình, cho NPU nghỉ ngơi
+                return;
             }
             lastFrameTime = now;
 
@@ -263,48 +159,10 @@ public class TouchService extends AccessibilityService {
                         }
                     }
 
-                    // 🔴 FALLBACK: QUÉT 3 ĐƯỜNG NGANG (SCANLINE) TÌM MÁU ĐỎ (SIÊU NHẸ CPU)
-                    if (!found && isConnected) {
-                        Image.Plane plane = image.getPlanes()[0];
-                        java.nio.ByteBuffer buffer = plane.getBuffer();
-                        int pixelStride = plane.getPixelStride();
-                        int rowStride = plane.getRowStride();
-                        int width = image.getWidth();
-                        int height = image.getHeight();
-                        
-                        long sumX = 0, sumY = 0;
-                        int count = 0;
-                        
-                        // Chỉ quét 3 đường ngang ở vùng 30%, 40%, 50% màn hình (Nơi đầu/ngực địch xuất hiện)
-                        int[] scanLines = {height * 3 / 10, height * 4 / 10, height * 5 / 10};
-                        for (int y : scanLines) {
-                            int rowOffset = y * rowStride;
-                            for (int x = 0; x < width; x += 2) { // Bước nhảy 2 pixel
-                                int offset = rowOffset + x * pixelStride;
-                                if (offset + 2 >= buffer.capacity()) continue;
-                                int r = buffer.get(offset) & 0xFF;
-                                int g = buffer.get(offset + 1) & 0xFF;
-                                int b = buffer.get(offset + 2) & 0xFF;
-                                if (r > 180 && g < 70 && b < 70) {
-                                    sumX += x; sumY += y; count++;
-                                }
-                            }
-                        }
-                        if (count > 3) {
-                            bestX = (sumX / count) * SCALE_FACTOR;
-                            bestY = (sumY / count) * SCALE_FACTOR;
-                            found = true;
-                        }
-                    }
-
                     if (found) {
-                        hudX = bestX; hudY = bestY; hudHo = bestHo;
-                        isTargetVisible = true;
                         ByteBuffer bb = ByteBuffer.allocate(16).order(java.nio.ByteOrder.LITTLE_ENDIAN);
                         bb.putFloat(bestX); bb.putFloat(bestY); bb.putFloat(bestHo); bb.putFloat(0.0f);
                         try { mOut.write(bb.array()); } catch (Exception e) {}
-                    } else {
-                        isTargetVisible = false;
                     }
                 })
                 .addOnCompleteListener(task -> isProcessing.set(false));
@@ -312,10 +170,25 @@ public class TouchService extends AccessibilityService {
 
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
+        
+        float dx = ex - sx;
+        float dy = ey - sy;
+        float dist = (float)Math.sqrt(dx*dx + dy*dy);
+        
+        // 🛡️ TOUCHSLOP BYPASS (Ép tối thiểu 15px)
+        float MIN_DRAG_DISTANCE = 15.0f;
+        if (dist < MIN_DRAG_DISTANCE) {
+            if (dist < 0.1f) return;
+            float scale = MIN_DRAG_DISTANCE / dist;
+            ex = sx + dx * scale;
+            ey = sy + dy * scale;
+        }
+
         isGestureRunning = true;
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
+        
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 40);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
@@ -328,7 +201,6 @@ public class TouchService extends AccessibilityService {
     @Override public void onDestroy() {
         super.onDestroy();
         isConnected = false;
-        if (mHudView != null && mWindowManager != null) try { mWindowManager.removeView(mHudView); } catch (Exception e) {}
         if (mVirtualDisplay != null) mVirtualDisplay.release();
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
