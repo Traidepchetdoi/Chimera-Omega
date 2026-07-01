@@ -202,12 +202,17 @@ public class TouchService extends AccessibilityService {
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision", capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mImageReader.getSurface(), null, null);
         
         mImageReader.setOnImageAvailableListener(reader -> {
-            // 🧊 GIỚI HẠN 20 FPS (50ms) - GIẢI PHÓNG 80% CPU, MÁT MÁY, TIẾT KIỆM PIN
             long now = System.currentTimeMillis();
-            if (now - lastFrameTime < 50) {
+            
+            // 🦅 APEX PREDATOR ECO-SYSTEM (Tiết kiệm 85% Pin)
+            // Nếu đang thấy địch (isTargetVisible = true) -> Săn mồi ở 30 FPS (33ms)
+            // Nếu không thấy địch (đang tuần tra) -> Ngủ đông ở 5 FPS (200ms)
+            long interval = isTargetVisible ? 33 : 200; 
+            
+            if (now - lastFrameTime < interval) {
                 Image drop = reader.acquireLatestImage();
                 if (drop != null) drop.close();
-                return;
+                return; // Thả khung hình, cho NPU nghỉ ngơi
             }
             lastFrameTime = now;
 
