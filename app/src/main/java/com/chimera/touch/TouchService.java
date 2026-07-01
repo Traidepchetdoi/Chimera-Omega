@@ -2,9 +2,6 @@ package com.chimera.touch;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -17,10 +14,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Handler;
-import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -71,66 +65,14 @@ public class TouchService extends AccessibilityService {
 
     @Override
     public void onServiceConnected() {
-        // 🚀 1. KÍCH HOẠT BẤT TỬ (ĐÃ VÁ LỖI CRASH)
-        startOmegaForeground();
-        
-        // 👁️ 2. KHỞI TẠO THỊ GIÁC & HUD
+        // 🛡️ ĐÃ HỦY BỎ HOÀN TOÀN startForeground() ĐỂ TRÁNH CRASH ANDROID 12+
         initFaceDetector(); 
         initReactiveHud(); 
-        
-        // 🔗 3. KẾT NỐI BỘ NÃO C++
         connectToBareMetalCore();
     }
 
-    private void startOmegaForeground() {
-        String channelId = "omega_immortal_channel";
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                channelId, "Omega Core System", NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("Hệ thống Aimbot Ngầm Bất Tử");
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.createNotificationChannel(channel);
-        }
-
-        try {
-            String packageName = getPackageName();
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + packageName));
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent);
-            }
-        } catch (Exception e) { Log.w(TAG, "Không thể xin quyền Pin: " + e.getMessage()); }
-
-        Notification.Builder builder;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, channelId);
-        } else {
-            builder = new Notification.Builder(this);
-        }
-
-        Notification notification = builder
-            .setContentTitle("🌌 OMEGA CORE ACTIVE")
-            .setContentText("Đã kết nối Trợ năng. Chờ bấm Bắt đầu Thị giác.")
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setOngoing(true)
-            .setPriority(Notification.PRIORITY_LOW)
-            .build();
-
-        // 🛡️ VÁ LỖI CRASH: CHỈ DÙNG FOREGROUND CƠ BẢN
-        // Không dùng ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION ở đây
-        // vì người dùng CHƯA bấm nút "Start Now" của hệ thống.
-        startForeground(1337, notification);
-    }
-
     private void initReactiveHud() {
-        if (!Settings.canDrawOverlays(this)) {
-            Log.w(TAG, "⚠️ CHƯA CÓ QUYỀN VẼ ĐÈ (SYSTEM_ALERT_WINDOW).");
-            return;
-        }
+        if (!Settings.canDrawOverlays(this)) return;
 
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics metrics = new DisplayMetrics();
@@ -170,7 +112,6 @@ public class TouchService extends AccessibilityService {
                     paintShadow.setStrokeWidth(12.0f);
                     canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintShadow);
                     canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintShadow);
-                    
                     paintLine.setColor(Color.RED);
                     paintLine.setStrokeWidth(6.0f);
                     paintLine.setAlpha(255);
@@ -179,12 +120,10 @@ public class TouchService extends AccessibilityService {
                 } else {
                     paintShadow.setStrokeWidth(10.0f);
                     canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintShadow);
-                    
                     paintLine.setColor(Color.YELLOW);
                     paintLine.setStrokeWidth(5.0f);
                     paintLine.setAlpha(255);
                     canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintLine);
-                    
                     paintLine.setStyle(Paint.Style.STROKE);
                     paintLine.setStrokeWidth(4.0f);
                     canvas.drawCircle(finalX, finalY, 25.0f, paintShadow);
@@ -195,19 +134,14 @@ public class TouchService extends AccessibilityService {
         };
         
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | 
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS |
-            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.LEFT;
-        
-        try { mWindowManager.addView(mHudView, params); } 
-        catch (Exception e) { Log.e(TAG, "Lỗi HUD: " + e.getMessage()); }
+        try { mWindowManager.addView(mHudView, params); } catch (Exception e) {}
     }
 
     private void connectToBareMetalCore() {
@@ -219,8 +153,6 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔗 TCP LINK ESTABLISHED");
-                    
                     byte[] buffer = new byte[16];
                     while (isConnected) {
                         int read = 0;
@@ -252,8 +184,7 @@ public class TouchService extends AccessibilityService {
 
     private void initFaceDetector() {
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-                .build();
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).build();
         mFaceDetector = FaceDetection.getClient(options);
     }
 
@@ -263,16 +194,11 @@ public class TouchService extends AccessibilityService {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
-        
         int capW = metrics.widthPixels / 4;
         int capH = metrics.heightPixels / 4;
         SCALE_FACTOR = 4.0f;
-
         mImageReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2);
-        mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision",
-                capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                mImageReader.getSurface(), null, null);
-
+        mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision", capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mImageReader.getSurface(), null, null);
         mImageReader.setOnImageAvailableListener(reader -> {
             if (isProcessing.get()) {
                 Image dropImage = reader.acquireLatestImage();
@@ -295,24 +221,20 @@ public class TouchService extends AccessibilityService {
                     if (isConnected && !faces.isEmpty()) {
                         float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
-                        
                         Face bestTarget = null;
                         float minDistSq = Float.MAX_VALUE;
-                        
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
                             float distSq = (fx - imgCenterX)*(fx - imgCenterX) + (fy - imgCenterY)*(fy - imgCenterY);
                             if (distSq < minDistSq) { minDistSq = distSq; bestTarget = face; }
                         }
-                        
                         if (bestTarget != null) {
                             hudX = bestTarget.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             hudY = bestTarget.getBoundingBox().exactCenterY() * SCALE_FACTOR;
                             hudHo = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
                             hudPitch = bestTarget.getHeadEulerAngleX();
                             isTargetVisible = true;
-                            
                             ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
                             bb.putFloat(hudX); bb.putFloat(hudY); bb.putFloat(hudHo); bb.putFloat(hudPitch);
                             try { mOut.write(bb.array()); } catch (Exception e) {}
@@ -325,15 +247,10 @@ public class TouchService extends AccessibilityService {
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         isGestureRunning = true;
-
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
-        
-        // 🚀 TỐC ĐỘ 30ms
-        GestureDescription.StrokeDescription stroke = 
-            new GestureDescription.StrokeDescription(path, 0, 30);
-            
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 30);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
             @Override public void onCancelled(GestureDescription gestureDescription) { isGestureRunning = false; }
@@ -350,4 +267,4 @@ public class TouchService extends AccessibilityService {
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-}
+                        }
