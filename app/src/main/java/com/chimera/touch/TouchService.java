@@ -182,6 +182,7 @@ public class TouchService extends AccessibilityService {
             sy = mLastEndY;
         }
         
+        // 🛡️ PHYSICAL UI SHIELD (Bảo vệ Joystick & Nút Bắn)
         float safeTopZone = getResources().getDisplayMetrics().heightPixels * 0.65f;
         if (sy > safeTopZone) sy = safeTopZone;
         if (ey > safeTopZone) ey = safeTopZone;
@@ -190,11 +191,11 @@ public class TouchService extends AccessibilityService {
         float dy = ey - sy;
         float dist = (float)Math.sqrt(dx*dx + dy*dy);
         
-        // 🛡️ SECONDARY FIREWALL: Chặn đứng MỌI cú vuốt < 15px (Tuyệt đối không cho Android biến thành TAP)
-        if (dist < 15.0f) return; 
+        // 🛡️ ABSOLUTE FIREWALL: Chặn MỌI cú vuốt < 20px (Tuyệt đối không cho Android biến thành Spam Tap)
+        if (dist < 20.0f) return; 
         
-        // 🚀 DYNAMIC DURATION: Vuốt càng dài, thời gian càng lâu để Android luôn nhận diện là DRAG (Không bị quán tính Fling)
-        int duration = 30 + (int)(dist * 1.2f); 
+        // 🚀 SLOWDOWN TRIGGER DURATION: Vuốt chậm lại một chút (50ms+) để Game Engine kịp nhận diện đây là Flick-shot và kích hoạt Hãm phanh (Slowdown)
+        int duration = 50 + (int)(dist * 0.5f); 
         if (duration > 100) duration = 100;
         
         isGestureRunning = true;
