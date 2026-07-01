@@ -38,24 +38,25 @@ public class TouchService extends AccessibilityService {
     private ImageReader mImageReader;
     private FaceDetector mFaceDetector;
     private Handler mHandler = new Handler();
+    
     private Socket mSocket;
     private OutputStream mOut;
     private InputStream mIn;
     private boolean isConnected = false;
+    
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
     private long lastFrameTime = 0;
-
-    // 🛡️ KHAI BÁO BIẾN TOÀN CỤC (Bắt buộc phải nằm ở đây, không được nằm trong hàm)
+    
+    // 🛡️ BIẾN TOÀN CỤC (Đã treo ở đây để GestureResultCallback có quyền sửa, triệt tiêu 100% lỗi Java Scope)
     private float lastEndX = -1; 
-    private float lastEndY = -1;
+    private float lastEndY = -1; 
 
     @Override
     public void onServiceConnected() {
         initFaceDetector(); 
         connectToBareMetalCore();
-        // 🚫 ĐÃ XÓA SỔ initReactiveHud() - GIẢI PHÓNG 100% GPU
     }
 
     private void connectToBareMetalCore() {
@@ -108,17 +109,18 @@ public class TouchService extends AccessibilityService {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
+        
         int capW = metrics.widthPixels / 4;
         int capH = metrics.heightPixels / 4;
         SCALE_FACTOR = 4.0f; 
+        
         mImageReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2);
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision", capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mImageReader.getSurface(), null, null);
         
         mImageReader.setOnImageAvailableListener(reader -> {
             long now = System.currentTimeMillis();
-            // 🦅 APEX PREDATOR ECO: 30 FPS khi săn, 5 FPS khi tuần tra
-            long interval = (isProcessing.get()) ? 33 : 200; 
-            if (now - lastFrameTime < interval) {
+            // 🦅 APEX PREDATOR ECO: Quét 40ms/frame (25 FPS) - Mát máy, tiết kiệm pin
+            if (now - lastFrameTime < 40) {
                 Image drop = reader.acquireLatestImage();
                 if (drop != null) drop.close();
                 return;
@@ -150,6 +152,7 @@ public class TouchService extends AccessibilityService {
                         float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
                         float minDistSq = Float.MAX_VALUE;
+                        
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
@@ -160,11 +163,11 @@ public class TouchService extends AccessibilityService {
                                 bestHo = face.getBoundingBox().height() * SCALE_FACTOR;
                                 found = true;
                             }
-                         }
+                        }
                     }
 
                     if (found) {
-                        ByteBuffer bb = ByteBuffer.allocate(16).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                        ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
                         bb.putFloat(bestX); bb.putFloat(bestY); bb.putFloat(bestHo); bb.putFloat(0.0f);
                         try { mOut.write(bb.array()); } catch (Exception e) {}
                     }
@@ -175,15 +178,13 @@ public class TouchService extends AccessibilityService {
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         
-        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Sử dụng biến toàn cục, không khai báo lại 'float')
+        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Chống Teleport)
         if (lastEndX != -1) {
             sx = lastEndX;
             sy = lastEndY;
         }
         
         // 🚫 PHYSICAL UI SHIELD (LÁ CHẮN VẬT LÝ - BẢO VỆ JOYSTICK & NÚT BẮN)
-        // Ép buộc mọi cú vuốt của Aimbot CHỈ ĐƯỢC diễn ra ở 65% màn hình phía trên.
-        // 35% màn hình phía dưới (Nút Bắn, Nhảy, Ngồi, Joystick) là Vùng Bất Khả Xâm Phạm.
         float safeTopZone = getResources().getDisplayMetrics().heightPixels * 0.65f;
         if (sy > safeTopZone) sy = safeTopZone;
         if (ey > safeTopZone) ey = safeTopZone;
@@ -192,7 +193,7 @@ public class TouchService extends AccessibilityService {
         float dy = ey - sy;
         float dist = (float)Math.sqrt(dx*dx + dy*dy);
         
-        if (dist < 8.0f) return; // Chặn vuốt quá nhỏ
+        if (dist < 8.0f) return; 
         
         // 🚀 TỐC ĐỘ PHẢN HỒI TỨC THÌ (30ms)
         int duration = 30; 
@@ -206,11 +207,13 @@ public class TouchService extends AccessibilityService {
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { 
                 isGestureRunning = false; 
-                lastEndX = ex; lastEndY = ey; 
+                lastEndX = ex; 
+                lastEndY = ey; 
             }
             @Override public void onCancelled(GestureDescription gestureDescription) { 
                 isGestureRunning = false; 
-                lastEndX = -1; lastEndY = -1; 
+                lastEndX = -1; 
+                lastEndY = -1; 
             }
         }, null);
     }
