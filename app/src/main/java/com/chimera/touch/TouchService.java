@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaHologram";
+    private static final String TAG = "OmegaReactive";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -56,27 +56,31 @@ public class TouchService extends AccessibilityService {
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
 
-    // 🕶️ HOLOGRAPHIC HUD VARIABLES
     private WindowManager mWindowManager;
     private View mHudView;
     private float hudX = 600, hudY = 1332, hudHo = 50, hudPitch = 0;
+    private float screenCenterX = 600, screenCenterY = 1332;
     private boolean isTargetVisible = false;
 
     @Override
     public void onServiceConnected() {
         initFaceDetector(); 
-        initHolographicHud(); // 🕶️ KHỞI TẠO KÍNH NGẮM 3D
+        initReactiveHud(); 
         connectToBareMetalCore();
     }
 
-    private void initHolographicHud() {
-        // Kiểm tra quyền Vẽ đè (Display over other apps)
+    private void initReactiveHud() {
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "⚠️ CHƯA CÓ QUYỀN VẼ ĐÈ. HUD SẼ BỊ TẮT.");
             return;
         }
 
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        DisplayMetrics metrics = new DisplayMetrics();
+        mWindowManager.getDefaultDisplay().getMetrics(metrics);
+        screenCenterX = metrics.widthPixels / 2.0f;
+        screenCenterY = metrics.heightPixels / 2.0f;
+
         mHudView = new View(this) {
             @Override
             protected void onDraw(Canvas canvas) {
@@ -85,8 +89,9 @@ public class TouchService extends AccessibilityService {
 
                 Paint paint = new Paint();
                 paint.setAntiAlias(true);
+                paint.setStyle(Paint.Style.STROKE);
                 
-                // 🦴 TÁI TẠO BỘ XƯƠNG 3D (VITRUVIAN KINEMATICS)
+                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (NƠI ĐẠN SẼ TRÚNG ĐẦU)
                 float safe_ho = Math.max(hudHo, 5.0f);
                 float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
                 float pitchRad = hudPitch * 0.0174533f;
@@ -94,28 +99,45 @@ public class TouchService extends AccessibilityService {
                 
                 float finalY = hudY + perspectiveOffset + postureShift;
                 
-                // 1. Vẽ Đường Trục Xương Sống (Spinal Axis) - Màu Xanh Lá
-                paint.setColor(Color.GREEN);
-                paint.setStrokeWidth(3.0f);
-                paint.setAlpha(180);
-                float spineLength = safe_ho * 2.5f;
-                float spineEndY = finalY + (float)Math.sin(pitchRad) * spineLength;
-                // Giả lập trục X dựa trên Pitch để tạo cảm giác 3D
-                canvas.drawLine(hudX, finalY - (safe_ho * 0.5f), hudX, spineEndY, paint); 
+                // 🎯 ĐO KHOẢNG CÁCH ĐẾN TÂM MÀN HÌNH (SUY LUẬN TRẠNG THÁI KHÓA)
+                float dx = hudX - screenCenterX;
+                float dy = finalY - screenCenterY;
+                float distToCenter = (float)Math.sqrt(dx*dx + dy*dy);
+
+                float baseRadius = 35.0f;
+                float time = System.currentTimeMillis();
+                float pulse = (float)Math.sin(time * 0.015) * 8.0f; // Nhịp co bóp
+
+                if (distToCenter < 30.0f) {
+                    // 🔴 ĐÃ KHÓA CHẶT (ĐỎ RỰC - CO BÓP - BẮN NGAY!)
+                    paint.setColor(Color.RED);
+                    paint.setStrokeWidth(6.0f);
+                    paint.setAlpha(255);
+                    canvas.drawCircle(hudX, finalY, baseRadius + pulse, paint);
+                    
+                    // Dấu X Tâm ngắm Tử thần
+                    paint.setStrokeWidth(3.0f);
+                    canvas.drawLine(hudX - 12, finalY - 12, hudX + 12, finalY + 12, paint);
+                    canvas.drawLine(hudX - 12, finalY + 12, hudX + 12, finalY - 12, paint);
+                    
+                } else if (distToCenter < 150.0f) {
+                    // 🟡 ĐANG KÉO (VÀNG - THU HẸP)
+                    paint.setColor(Color.YELLOW);
+                    paint.setStrokeWidth(4.0f);
+                    paint.setAlpha(200);
+                    float dynamicRadius = baseRadius + (distToCenter / 3.0f);
+                    canvas.drawCircle(hudX, finalY, dynamicRadius, paint);
+                    
+                } else {
+                    // ⚪ NGOÀI TẦM (XÁM MỜ)
+                    paint.setColor(Color.GRAY);
+                    paint.setStrokeWidth(2.0f);
+                    paint.setAlpha(100);
+                    canvas.drawCircle(hudX, finalY, baseRadius, paint);
+                }
                 
-                // 2. Vẽ Tâm ngắm Vật lý (Ballistic Crosshair) - Màu Đỏ
-                paint.setColor(Color.RED);
-                paint.setStrokeWidth(2.5f);
-                paint.setAlpha(255);
-                canvas.drawLine(hudX - 15, finalY, hudX + 15, finalY, paint);
-                canvas.drawLine(hudX, finalY - 15, hudX, finalY + 15, paint);
-                
-                // 3. Vẽ Vòng tròn Vùng hút (FOV Circle)
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(1.5f);
-                paint.setColor(Color.YELLOW);
-                paint.setAlpha(100);
-                canvas.drawCircle(hudX, finalY, 60.0f, paint); // SILK_LOCK_RADIUS = 60
+                // Vẽ lại liên tục để tạo hiệu ứng Pulsing
+                if (isTargetVisible) invalidate();
             }
         };
         
@@ -133,7 +155,7 @@ public class TouchService extends AccessibilityService {
         
         try {
             mWindowManager.addView(mHudView, params);
-            Log.i(TAG, "🕶️ HOLOGRAPHIC HUD DEPLOYED.");
+            Log.i(TAG, "🎯 REACTIVE RETICLE DEPLOYED.");
         } catch (Exception e) {
             Log.e(TAG, "Lỗi thêm HUD: " + e.getMessage());
         }
@@ -226,8 +248,8 @@ public class TouchService extends AccessibilityService {
         Task<List<Face>> result = mFaceDetector.process(inputImage)
                 .addOnSuccessListener(faces -> {
                     if (isConnected && !faces.isEmpty()) {
-                        float screenCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
-                        float screenCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
+                        float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
+                        float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
                         
                         Face bestTarget = null;
                         float minDistSq = Float.MAX_VALUE;
@@ -235,8 +257,8 @@ public class TouchService extends AccessibilityService {
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                            float dx = fx - screenCenterX;
-                            float dy = fy - screenCenterY;
+                            float dx = fx - imgCenterX;
+                            float dy = fy - imgCenterY;
                             float distSq = dx*dx + dy*dy;
                             
                             if (distSq < minDistSq) {
@@ -246,26 +268,18 @@ public class TouchService extends AccessibilityService {
                         }
                         
                         if (bestTarget != null) {
-                            float x = bestTarget.getBoundingBox().exactCenterX() * SCALE_FACTOR;
-                            float y = bestTarget.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                            float ho = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
-                            float pitch = bestTarget.getHeadEulerAngleX();
-                            
-                            // 🕶️ CẬP NHẬT DỮ LIỆU CHO KÍNH NGẮM HOLOGRAM
-                            hudX = x;
-                            hudY = y;
-                            hudHo = ho;
-                            hudPitch = pitch;
+                            hudX = bestTarget.getBoundingBox().exactCenterX() * SCALE_FACTOR;
+                            hudY = bestTarget.getBoundingBox().exactCenterY() * SCALE_FACTOR;
+                            hudHo = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
+                            hudPitch = bestTarget.getHeadEulerAngleX();
                             isTargetVisible = true;
-                            if (mHudView != null) mHudView.invalidate(); // VẼ LẠI HUD
                             
                             ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
-                            bb.putFloat(x); bb.putFloat(y); bb.putFloat(ho); bb.putFloat(pitch);
+                            bb.putFloat(hudX); bb.putFloat(hudY); bb.putFloat(hudHo); bb.putFloat(hudPitch);
                             try { mOut.write(bb.array()); } catch (Exception e) {}
                         }
                     } else {
                         isTargetVisible = false;
-                        if (mHudView != null) mHudView.invalidate(); // XÓA HUD KHI MẤT MỤC TIÊU
                     }
                 })
                 .addOnCompleteListener(task -> isProcessing.set(false));
@@ -300,4 +314,4 @@ public class TouchService extends AccessibilityService {
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-                                                          }
+}
