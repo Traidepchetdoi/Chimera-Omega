@@ -15,9 +15,9 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
+import android.os.Process;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaRadar";
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
@@ -52,15 +51,18 @@ public class TouchService extends AccessibilityService {
     private boolean isConnected = false;
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private volatile boolean isGestureRunning = false; 
-    private float SCALE_FACTOR = 6.0f; 
+    private float SCALE_FACTOR = 4.0f; 
     private WindowManager mWindowManager;
     private View mHudView;
     private float hudX = 600, hudY = 1332, hudHo = 50;
     private float screenCenterX = 600, screenCenterY = 1332;
     private boolean isTargetVisible = false;
+    private long lastFrameTime = 0;
 
     @Override
     public void onServiceConnected() {
+        // Ép luồng TCP và Vuốt chạy ở mức ưu tiên cao nhất để không bị delay
+        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY);
         initFaceDetector(); 
         initReactiveHud(); 
         connectToBareMetalCore();
@@ -91,9 +93,8 @@ public class TouchService extends AccessibilityService {
                     float time = System.currentTimeMillis();
                     float angle = (time % 1500) / 1500.0f * 360.0f;
                     double rad = Math.toRadians(angle);
-                    float radarLen = 80.0f;
-                    float endX = screenCenterX + (float)(Math.cos(rad) * radarLen);
-                    float endY = screenCenterY + (float)(Math.sin(rad) * radarLen);
+                    float endX = screenCenterX + (float)(Math.cos(rad) * 80.0f);
+                    float endY = screenCenterY + (float)(Math.sin(rad) * 80.0f);
                     paintLine.setColor(Color.CYAN);
                     paintLine.setStrokeWidth(3.0f);
                     paintLine.setAlpha(150);
@@ -105,8 +106,7 @@ public class TouchService extends AccessibilityService {
                     float safe_ho = Math.max(hudHo, 5.0f);
                     float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
                     float finalY = hudY + perspectiveOffset;
-                    float finalX = hudX;
-                    float dx = finalX - screenCenterX;
+                    float dx = hudX - screenCenterX;
                     float dy = finalY - screenCenterY;
                     float dist = (float)Math.sqrt(dx*dx + dy*dy);
 
@@ -120,14 +120,14 @@ public class TouchService extends AccessibilityService {
                         canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintLine);
                     } else {
                         paintShadow.setStrokeWidth(10.0f);
-                        canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintShadow);
+                        canvas.drawLine(screenCenterX, screenCenterY, hudX, finalY, paintShadow);
                         paintLine.setColor(Color.YELLOW);
                         paintLine.setStrokeWidth(5.0f);
-                        canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintLine);
+                        canvas.drawLine(screenCenterX, screenCenterY, hudX, finalY, paintLine);
                         paintLine.setStyle(Paint.Style.STROKE);
                         paintLine.setStrokeWidth(4.0f);
-                        canvas.drawCircle(finalX, finalY, 25.0f, paintShadow);
-                        canvas.drawCircle(finalX, finalY, 25.0f, paintLine);
+                        canvas.drawCircle(hudX, finalY, 25.0f, paintShadow);
+                        canvas.drawCircle(hudX, finalY, 25.0f, paintLine);
                     }
                 }
                 invalidate();
@@ -146,6 +146,7 @@ public class TouchService extends AccessibilityService {
 
     private void connectToBareMetalCore() {
         new Thread(() -> {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
             while (true) {
                 try {
                     mSocket = new Socket("127.0.0.1", 8082);
@@ -194,12 +195,22 @@ public class TouchService extends AccessibilityService {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getMetrics(metrics);
-        int capW = metrics.widthPixels / 6;
-        int capH = metrics.heightPixels / 6;
-        SCALE_FACTOR = 6.0f; 
+        int capW = metrics.widthPixels / 4;
+        int capH = metrics.heightPixels / 4;
+        SCALE_FACTOR = 4.0f; 
         mImageReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2);
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("OmegaVision", capW, capH, metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mImageReader.getSurface(), null, null);
+        
         mImageReader.setOnImageAvailableListener(reader -> {
+            // 🧊 GIỚI HẠN 20 FPS (50ms) - GIẢI PHÓNG 80% CPU, MÁT MÁY, TIẾT KIỆM PIN
+            long now = System.currentTimeMillis();
+            if (now - lastFrameTime < 50) {
+                Image drop = reader.acquireLatestImage();
+                if (drop != null) drop.close();
+                return;
+            }
+            lastFrameTime = now;
+
             if (isProcessing.get()) {
                 Image dropImage = reader.acquireLatestImage();
                 if (dropImage != null) dropImage.close();
@@ -221,7 +232,6 @@ public class TouchService extends AccessibilityService {
                     float bestX = -1, bestY = -1, bestHo = 40.0f;
                     boolean found = false;
 
-                    // 🔍 PHA 1: ML KIT (Ưu tiên cao nhất - Nếu may mắn thấy mặt)
                     if (isConnected && !faces.isEmpty()) {
                         float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
@@ -239,80 +249,40 @@ public class TouchService extends AccessibilityService {
                         }
                     }
 
-                    // 🕸️ PHA 2: VARIANCE GRID (SĂN LÙNG CẤU TRÚC 3D - BẤT CHẤP KHÔNG CÓ MÁU)
+                    // 🔴 FALLBACK: QUÉT 3 ĐƯỜNG NGANG (SCANLINE) TÌM MÁU ĐỎ (SIÊU NHẸ CPU)
                     if (!found && isConnected) {
-                        int w = image.getWidth();
-                        int h = image.getHeight();
                         Image.Plane plane = image.getPlanes()[0];
                         java.nio.ByteBuffer buffer = plane.getBuffer();
                         int pixelStride = plane.getPixelStride();
                         int rowStride = plane.getRowStride();
-
-                        int gridX = 12; // Chia 12 cột
-                        int gridY = 16; // Chia 16 hàng
-                        int blockW = w / gridX;
-                        int blockH = h / gridY;
-
-                        float maxScore = 0;
-                        int bestCX = -1, bestCY = -1;
-
-                        // Quét vùng trung tâm (Bỏ qua rìa trên/dưới nơi có UI của Game)
-                        for (int gy = 4; gy < 12; gy++) {
-                            for (int gx = 3; gx < 9; gx++) {
-                                long sum = 0;
-                                long sumSq = 0;
-                                int count = 0;
-                                
-                                int startX = gx * blockW;
-                                int startY = gy * blockH;
-                                
-                                // Lấy mẫu 16 điểm trong ô để tiết kiệm CPU
-                                for (int i = 0; i < 4; i++) {
-                                    for (int j = 0; j < 4; j++) {
-                                        int x = startX + (i * blockW / 4);
-                                        int y = startY + (j * blockH / 4);
-                                        int offset = y * rowStride + x * pixelStride;
-                                        if (offset + 2 >= buffer.capacity()) continue;
-                                        
-                                        int r = buffer.get(offset) & 0xFF;
-                                        int g = buffer.get(offset + 1) & 0xFF;
-                                        int b = buffer.get(offset + 2) & 0xFF;
-                                        int lum = (r + g + b) / 3; // Độ sáng
-                                        
-                                        sum += lum;
-                                        sumSq += lum * lum;
-                                        count++;
-                                    }
-                                }
-                                
-                                if (count > 0) {
-                                    float mean = sum / count;
-                                    float variance = (sumSq / count) - (mean * mean); // Phương sai (Độ phức tạp)
-                                    
-                                    // Trọng số: Ưu tiên ô có nhiều chi tiết VÀ nằm gần tâm màn hình
-                                    float centerX = (gx + 0.5f) / gridX;
-                                    float centerY = (gy + 0.5f) / gridY;
-                                    float distToCenter = (float)Math.sqrt(Math.pow(centerX - 0.5, 2) + Math.pow(centerY - 0.5, 2));
-                                    float score = variance * (1.5f - distToCenter); 
-                                    
-                                    if (score > maxScore) {
-                                        maxScore = score;
-                                        bestCX = (int)((gx + 0.5f) * blockW);
-                                        bestCY = (int)((gy + 0.5f) * blockH);
-                                    }
+                        int width = image.getWidth();
+                        int height = image.getHeight();
+                        
+                        long sumX = 0, sumY = 0;
+                        int count = 0;
+                        
+                        // Chỉ quét 3 đường ngang ở vùng 30%, 40%, 50% màn hình (Nơi đầu/ngực địch xuất hiện)
+                        int[] scanLines = {height * 3 / 10, height * 4 / 10, height * 5 / 10};
+                        for (int y : scanLines) {
+                            int rowOffset = y * rowStride;
+                            for (int x = 0; x < width; x += 2) { // Bước nhảy 2 pixel
+                                int offset = rowOffset + x * pixelStride;
+                                if (offset + 2 >= buffer.capacity()) continue;
+                                int r = buffer.get(offset) & 0xFF;
+                                int g = buffer.get(offset + 1) & 0xFF;
+                                int b = buffer.get(offset + 2) & 0xFF;
+                                if (r > 180 && g < 70 && b < 70) {
+                                    sumX += x; sumY += y; count++;
                                 }
                             }
                         }
-
-                        // Ngưỡng phương sai > 600 nghĩa là vùng đó có "Cạnh / Góc / Cấu trúc 3D" (Không phải tường phẳng hay trời)
-                        if (maxScore > 600 && bestCX != -1) {
-                            bestX = bestCX * SCALE_FACTOR;
-                            bestY = bestCY * SCALE_FACTOR;
+                        if (count > 3) {
+                            bestX = (sumX / count) * SCALE_FACTOR;
+                            bestY = (sumY / count) * SCALE_FACTOR;
                             found = true;
                         }
                     }
 
-                    // 📡 KÍCH HOẠT HUD & GỬI XUỐNG C++
                     if (found) {
                         hudX = bestX; hudY = bestY; hudHo = bestHo;
                         isTargetVisible = true;
