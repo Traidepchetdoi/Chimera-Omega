@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.chimera.touch">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -11,8 +9,7 @@
 
     <application
         android:label="Chimera Omega"
-        android:allowBackup="false"
-        tools:replace="android:label,android:allowBackup">
+        android:allowBackup="false">
 
         <activity
             android:name=".MainActivity"
@@ -26,8 +23,7 @@
         <service
             android:name=".TouchService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true"
-            tools:ignore="ForegroundServicePermission">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
