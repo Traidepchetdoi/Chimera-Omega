@@ -46,6 +46,8 @@ public class TouchService extends AccessibilityService {
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
     private long lastFrameTime = 0;
+    private float lastEndX = -1;
+    private float lastEndY = -1;
 
     @Override
     public void onServiceConnected() {
@@ -170,17 +172,38 @@ public class TouchService extends AccessibilityService {
 
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
-        isGestureRunning = true;
         
+        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Chống Teleport)
+        if (lastEndX != -1) {
+            sx = lastEndX;
+            sy = lastEndY;
+        }
+        
+        float dx = ex - sx;
+        float dy = ey - sy;
+        float dist = (float)Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < 10.0f) return; // Chặn vuốt quá nhỏ
+        
+        // 🚀 TỐC ĐỘ PHẢN HỒI TỨC THÌ (30ms - Nhanh nhất Android cho phép)
+        // Giúp C++ bẻ gãy lực vuốt của User ngay lập tức mà không bị InputDispatcher làm trễ
+        int duration = 30; 
+        
+        isGestureRunning = true;
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
-        // 40ms: Tỷ lệ vàng
-        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 40);
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, duration);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
-            @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
-            @Override public void onCancelled(GestureDescription gestureDescription) { isGestureRunning = false; }
+            @Override public void onCompleted(GestureDescription gestureDescription) { 
+                isGestureRunning = false; 
+                lastEndX = ex; lastEndY = ey; 
+            }
+            @Override public void onCancelled(GestureDescription gestureDescription) { 
+                isGestureRunning = false; 
+                lastEndX = -1; lastEndY = -1; 
+            }
         }, null);
     }
 
