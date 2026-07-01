@@ -22,30 +22,20 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
-import androidx.annotation.NonNull;
-
-import com.google.android.gms.tasks.Task;
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.face.Face;
-import com.google.mlkit.vision.face.FaceDetection;
-import com.google.mlkit.vision.face.FaceDetector;
-import com.google.mlkit.vision.face.FaceDetectorOptions;
 
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaMaster";
+    private static final String TAG = "OmegaOptical";
     
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
-    private FaceDetector mFaceDetector;
     private Handler mHandler = new Handler();
     
     private Socket mSocket;
@@ -59,21 +49,18 @@ public class TouchService extends AccessibilityService {
 
     private WindowManager mWindowManager;
     private View mHudView;
-    private float hudX = 600, hudY = 1332, hudHo = 50, hudPitch = 0;
+    private float hudX = 600, hudY = 1332;
     private float screenCenterX = 600, screenCenterY = 1332;
     private boolean isTargetVisible = false;
 
     @Override
     public void onServiceConnected() {
-        // 🛡️ ĐÃ HỦY BỎ HOÀN TOÀN startForeground() ĐỂ TRÁNH CRASH ANDROID 12+
-        initFaceDetector(); 
         initReactiveHud(); 
         connectToBareMetalCore();
     }
 
     private void initReactiveHud() {
         if (!Settings.canDrawOverlays(this)) return;
-
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         DisplayMetrics metrics = new DisplayMetrics();
         mWindowManager.getDefaultDisplay().getMetrics(metrics);
@@ -96,16 +83,8 @@ public class TouchService extends AccessibilityService {
                 paintLine.setAntiAlias(true);
                 paintLine.setStrokeCap(Paint.Cap.ROUND);
 
-                float safe_ho = Math.max(hudHo, 5.0f);
-                float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
-                float pitchRad = hudPitch * 0.0174533f;
-                float postureShift = (float)Math.sin(pitchRad) * safe_ho * 1.5f;
-                
-                float finalY = hudY + perspectiveOffset + postureShift;
-                float finalX = hudX;
-                
-                float dx = finalX - screenCenterX;
-                float dy = finalY - screenCenterY;
+                float dx = hudX - screenCenterX;
+                float dy = hudY - screenCenterY;
                 float dist = (float)Math.sqrt(dx*dx + dy*dy);
 
                 if (dist < 40.0f) {
@@ -114,20 +93,17 @@ public class TouchService extends AccessibilityService {
                     canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintShadow);
                     paintLine.setColor(Color.RED);
                     paintLine.setStrokeWidth(6.0f);
-                    paintLine.setAlpha(255);
                     canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintLine);
                     canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintLine);
                 } else {
                     paintShadow.setStrokeWidth(10.0f);
-                    canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintShadow);
+                    canvas.drawLine(screenCenterX, screenCenterY, hudX, hudY, paintShadow);
                     paintLine.setColor(Color.YELLOW);
                     paintLine.setStrokeWidth(5.0f);
-                    paintLine.setAlpha(255);
-                    canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintLine);
+                    canvas.drawLine(screenCenterX, screenCenterY, hudX, hudY, paintLine);
                     paintLine.setStyle(Paint.Style.STROKE);
-                    paintLine.setStrokeWidth(4.0f);
-                    canvas.drawCircle(finalX, finalY, 25.0f, paintShadow);
-                    canvas.drawCircle(finalX, finalY, 25.0f, paintLine);
+                    canvas.drawCircle(hudX, hudY, 25.0f, paintShadow);
+                    canvas.drawCircle(hudX, hudY, 25.0f, paintLine);
                 }
                 if (isTargetVisible) invalidate();
             }
@@ -182,12 +158,6 @@ public class TouchService extends AccessibilityService {
         return super.onStartCommand(intent, flags, startId);
     }
 
-    private void initFaceDetector() {
-        FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).build();
-        mFaceDetector = FaceDetection.getClient(options);
-    }
-
     private void startVision(int code, Intent data) {
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         mMediaProjection = mgr.getMediaProjection(code, data);
@@ -208,40 +178,66 @@ public class TouchService extends AccessibilityService {
             Image image = reader.acquireLatestImage();
             if (image != null) {
                 isProcessing.set(true);
-                processImage(image);
+                scanForRedTarget(image);
                 image.close();
             }
         }, mHandler);
     }
 
-    private void processImage(@NonNull Image image) {
-        InputImage inputImage = InputImage.fromMediaImage(image, 0);
-        Task<List<Face>> result = mFaceDetector.process(inputImage)
-                .addOnSuccessListener(faces -> {
-                    if (isConnected && !faces.isEmpty()) {
-                        float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
-                        float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
-                        Face bestTarget = null;
-                        float minDistSq = Float.MAX_VALUE;
-                        for (Face face : faces) {
-                            float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
-                            float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                            float distSq = (fx - imgCenterX)*(fx - imgCenterX) + (fy - imgCenterY)*(fy - imgCenterY);
-                            if (distSq < minDistSq) { minDistSq = distSq; bestTarget = face; }
-                        }
-                        if (bestTarget != null) {
-                            hudX = bestTarget.getBoundingBox().exactCenterX() * SCALE_FACTOR;
-                            hudY = bestTarget.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                            hudHo = bestTarget.getBoundingBox().height() * SCALE_FACTOR;
-                            hudPitch = bestTarget.getHeadEulerAngleX();
-                            isTargetVisible = true;
-                            ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
-                            bb.putFloat(hudX); bb.putFloat(hudY); bb.putFloat(hudHo); bb.putFloat(hudPitch);
-                            try { mOut.write(bb.array()); } catch (Exception e) {}
-                        }
-                    } else { isTargetVisible = false; }
-                })
-                .addOnCompleteListener(task -> isProcessing.set(false));
+    // 🔴 THUẬT TOÁN QUÉT CHỮ KÝ MÀU ĐỎ (THAY THẾ ML KIT)
+    private void scanForRedTarget(Image image) {
+        Image.Plane plane = image.getPlanes()[0];
+        ByteBuffer buffer = plane.getBuffer();
+        int pixelStride = plane.getPixelStride();
+        int rowStride = plane.getRowStride();
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        long sumX = 0, sumY = 0;
+        int count = 0;
+
+        // Vùng quét (ROI): Chỉ quét vùng giữa và hơi lệch lên trên (nơi Tên/Máu địch thường hiện)
+        int startX = width / 4;
+        int endX = (width * 3) / 4;
+        int startY = height / 8;
+        int endY = (height * 5) / 8;
+
+        for (int y = startY; y < endY; y++) {
+            int rowOffset = y * rowStride;
+            for (int x = startX; x < endX; x++) {
+                int pixelOffset = rowOffset + x * pixelStride;
+                int r = buffer.get(pixelOffset) & 0xFF;
+                int g = buffer.get(pixelOffset + 1) & 0xFF;
+                int b = buffer.get(pixelOffset + 2) & 0xFF;
+                
+                // Phát hiện màu Đỏ rực (Tên địch / Thanh máu)
+                if (r > 160 && g < 90 && b < 90) {
+                    sumX += x;
+                    sumY += y;
+                    count++;
+                }
+            }
+        }
+
+        // Nếu tìm thấy đủ số lượng pixel đỏ (chống nhiễu ngẫu nhiên)
+        if (count > 15) {
+            hudX = (sumX / count) * SCALE_FACTOR;
+            hudY = (sumY / count) * SCALE_FACTOR;
+            isTargetVisible = true;
+            
+            // Giả lập ho và pitch để C++ không bị lỗi chia cho 0
+            float ho = 40.0f; 
+            float pitch = 0.0f;
+            
+            ByteBuffer bb = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+            bb.putFloat(hudX); bb.putFloat(hudY); bb.putFloat(ho); bb.putFloat(pitch);
+            try { mOut.write(bb.array()); } catch (Exception e) {}
+        } else {
+            isTargetVisible = false;
+        }
+        
+        isProcessing.set(false);
+        if (mHudView != null) mHudView.invalidate();
     }
 
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
@@ -267,4 +263,4 @@ public class TouchService extends AccessibilityService {
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-                        }
+}
