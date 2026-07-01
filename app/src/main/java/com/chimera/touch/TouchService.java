@@ -175,7 +175,7 @@ public class TouchService extends AccessibilityService {
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         
-        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Chống Teleport)
+        // 🛡️ ĐỒNG BỘ TỌA ĐỘ (Sử dụng biến toàn cục, không khai báo lại 'float')
         if (lastEndX != -1) {
             sx = lastEndX;
             sy = lastEndY;
