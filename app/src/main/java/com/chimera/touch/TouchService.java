@@ -156,7 +156,7 @@ public class TouchService extends AccessibilityService {
                                 bestHo = face.getBoundingBox().height() * SCALE_FACTOR;
                                 found = true;
                             }
-                        }
+                         }
                     }
 
                     if (found) {
@@ -170,25 +170,13 @@ public class TouchService extends AccessibilityService {
 
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
-        
-        float dx = ex - sx;
-        float dy = ey - sy;
-        float dist = (float)Math.sqrt(dx*dx + dy*dy);
-        
-        // 🛡️ TOUCHSLOP BYPASS (Ép tối thiểu 15px)
-        float MIN_DRAG_DISTANCE = 15.0f;
-        if (dist < MIN_DRAG_DISTANCE) {
-            if (dist < 0.1f) return;
-            float scale = MIN_DRAG_DISTANCE / dist;
-            ex = sx + dx * scale;
-            ey = sy + dy * scale;
-        }
-
         isGestureRunning = true;
+        
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
+        // 40ms: Tỷ lệ vàng
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 40);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
