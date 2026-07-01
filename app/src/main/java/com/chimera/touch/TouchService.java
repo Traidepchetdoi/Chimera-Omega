@@ -2,6 +2,9 @@ package com.chimera.touch;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -14,7 +17,10 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -31,31 +37,36 @@ import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 
-import java.net.Socket;
-import java.io.OutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TouchService extends AccessibilityService {
-    private static final String TAG = "OmegaReactive";
+    private static final String TAG = "OmegaImmortal";
+    
+    // 🌌 CORE VARIABLES
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
     private FaceDetector mFaceDetector;
     private Handler mHandler = new Handler();
     
+    // 🔗 TCP VARIABLES
     private Socket mSocket;
     private OutputStream mOut;
     private InputStream mIn;
     private boolean isConnected = false;
     
+    // ⚙️ STATE VARIABLES
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
 
+    // 🕶️ HUD VARIABLES
     private WindowManager mWindowManager;
     private View mHudView;
     private float hudX = 600, hudY = 1332, hudHo = 50, hudPitch = 0;
@@ -64,14 +75,69 @@ public class TouchService extends AccessibilityService {
 
     @Override
     public void onServiceConnected() {
+        // 🚀 1. KÍCH HOẠT CHẾ ĐỘ BẤT TỬ (FOREGROUND SERVICE)
+        startOmegaForeground();
+        
+        // 👁️ 2. KHỞI TẠO THỊ GIÁC & HUD
         initFaceDetector(); 
         initReactiveHud(); 
+        
+        // 🔗 3. KẾT NỐI BỘ NÃO C++
         connectToBareMetalCore();
+    }
+
+    private void startOmegaForeground() {
+        String channelId = "omega_immortal_channel";
+        
+        // Tạo kênh thông báo (Android 8.0+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                channelId, "Omega Core System", NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Hệ thống Aimbot Ngầm Bất Tử");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.createNotificationChannel(channel);
+        }
+
+        // 🛡️ XIN QUYỀN BỎ QUA TỐI ƯU HÓA PIN (Chống Android giết ngầm)
+        try {
+            String packageName = getPackageName();
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + packageName));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            }
+        } catch (Exception e) { Log.w(TAG, "Không thể xin quyền Pin: " + e.getMessage()); }
+
+        // 📜 TẠO THÔNG BÁO GHIM (Để Kernel bảo vệ tiến trình)
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = new Notification.Builder(this, channelId);
+        } else {
+            builder = new Notification.Builder(this);
+        }
+
+        Notification notification = builder
+            .setContentTitle("🌌 OMEGA CORE ACTIVE")
+            .setContentText("Hệ thống Thị giác & Động học đang chạy ngầm.")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setOngoing(true) // Ghim cứng
+            .setPriority(Notification.PRIORITY_LOW)
+            .build();
+
+        // Đẩy lên Foreground
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1337, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(1337, notification);
+        }
     }
 
     private void initReactiveHud() {
         if (!Settings.canDrawOverlays(this)) {
-            Log.w(TAG, "⚠️ CHƯA CÓ QUYỀN VẼ ĐÈ. HUD SẼ BỊ TẮT.");
+            Log.w(TAG, "⚠️ CHƯA CÓ QUYỀN VẼ ĐÈ (SYSTEM_ALERT_WINDOW).");
             return;
         }
 
@@ -91,7 +157,7 @@ public class TouchService extends AccessibilityService {
                 paint.setAntiAlias(true);
                 paint.setStyle(Paint.Style.STROKE);
                 
-                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (NƠI ĐẠN SẼ TRÚNG ĐẦU)
+                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (Abyssal Offset)
                 float safe_ho = Math.max(hudHo, 5.0f);
                 float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
                 float pitchRad = hudPitch * 0.0174533f;
@@ -99,29 +165,29 @@ public class TouchService extends AccessibilityService {
                 
                 float finalY = hudY + perspectiveOffset + postureShift;
                 
-                // 🎯 ĐO KHOẢNG CÁCH ĐẾN TÂM MÀN HÌNH (SUY LUẬN TRẠNG THÁI KHÓA)
+                // 🎯 ĐO KHOẢNG CÁCH ĐẾN TÂM MÀN HÌNH (Suy luận Trạng thái Khóa)
                 float dx = hudX - screenCenterX;
                 float dy = finalY - screenCenterY;
                 float distToCenter = (float)Math.sqrt(dx*dx + dy*dy);
 
                 float baseRadius = 35.0f;
                 float time = System.currentTimeMillis();
-                float pulse = (float)Math.sin(time * 0.015) * 8.0f; // Nhịp co bóp
+                float pulse = (float)Math.sin(time * 0.015) * 8.0f;
 
                 if (distToCenter < 30.0f) {
-                    // 🔴 ĐÃ KHÓA CHẶT (ĐỎ RỰC - CO BÓP - BẮN NGAY!)
+                    // 🔴 ĐÃ KHÓA CHẶT (ĐỎ RỰC - CO BÓP)
                     paint.setColor(Color.RED);
                     paint.setStrokeWidth(6.0f);
                     paint.setAlpha(255);
                     canvas.drawCircle(hudX, finalY, baseRadius + pulse, paint);
                     
-                    // Dấu X Tâm ngắm Tử thần
+                    // Dấu X Tử thần
                     paint.setStrokeWidth(3.0f);
                     canvas.drawLine(hudX - 12, finalY - 12, hudX + 12, finalY + 12, paint);
                     canvas.drawLine(hudX - 12, finalY + 12, hudX + 12, finalY - 12, paint);
                     
                 } else if (distToCenter < 150.0f) {
-                    // 🟡 ĐANG KÉO (VÀNG - THU HẸP)
+                    // 🟡 ĐANG KÉO (VÀNG)
                     paint.setColor(Color.YELLOW);
                     paint.setStrokeWidth(4.0f);
                     paint.setAlpha(200);
@@ -129,15 +195,14 @@ public class TouchService extends AccessibilityService {
                     canvas.drawCircle(hudX, finalY, dynamicRadius, paint);
                     
                 } else {
-                    // ⚪ NGOÀI TẦM (XÁM MỜ)
+                    // ⚪ NGOÀI TẦM (XÁM)
                     paint.setColor(Color.GRAY);
                     paint.setStrokeWidth(2.0f);
                     paint.setAlpha(100);
                     canvas.drawCircle(hudX, finalY, baseRadius, paint);
                 }
                 
-                // Vẽ lại liên tục để tạo hiệu ứng Pulsing
-                if (isTargetVisible) invalidate();
+                if (isTargetVisible) invalidate(); // Vẽ lại liên tục
             }
         };
         
@@ -153,12 +218,8 @@ public class TouchService extends AccessibilityService {
         );
         params.gravity = Gravity.TOP | Gravity.LEFT;
         
-        try {
-            mWindowManager.addView(mHudView, params);
-            Log.i(TAG, "🎯 REACTIVE RETICLE DEPLOYED.");
-        } catch (Exception e) {
-            Log.e(TAG, "Lỗi thêm HUD: " + e.getMessage());
-        }
+        try { mWindowManager.addView(mHudView, params); } 
+        catch (Exception e) { Log.e(TAG, "Lỗi HUD: " + e.getMessage()); }
     }
 
     private void connectToBareMetalCore() {
@@ -170,7 +231,7 @@ public class TouchService extends AccessibilityService {
                     mOut = mSocket.getOutputStream();
                     mIn = mSocket.getInputStream();
                     isConnected = true;
-                    Log.i(TAG, "🔥 BARE-METAL LINK ESTABLISHED");
+                    Log.i(TAG, "🔗 TCP LINK ESTABLISHED");
                     
                     byte[] buffer = new byte[16];
                     while (isConnected) {
@@ -181,11 +242,7 @@ public class TouchService extends AccessibilityService {
                             read += count;
                         }
                         ByteBuffer bb = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
-                        float sx = bb.getFloat(0);
-                        float sy = bb.getFloat(4);
-                        float ex = bb.getFloat(8);
-                        float ey = bb.getFloat(12);
-                        dispatchSafeDrag(sx, sy, ex, ey);
+                        dispatchSafeDrag(bb.getFloat(0), bb.getFloat(4), bb.getFloat(8), bb.getFloat(12));
                     }
                 } catch (Exception e) { 
                     isConnected = false;
@@ -257,14 +314,8 @@ public class TouchService extends AccessibilityService {
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
-                            float dx = fx - imgCenterX;
-                            float dy = fy - imgCenterY;
-                            float distSq = dx*dx + dy*dy;
-                            
-                            if (distSq < minDistSq) {
-                                minDistSq = distSq;
-                                bestTarget = face;
-                            }
+                            float distSq = (fx - imgCenterX)*(fx - imgCenterX) + (fy - imgCenterY)*(fy - imgCenterY);
+                            if (distSq < minDistSq) { minDistSq = distSq; bestTarget = face; }
                         }
                         
                         if (bestTarget != null) {
@@ -278,9 +329,7 @@ public class TouchService extends AccessibilityService {
                             bb.putFloat(hudX); bb.putFloat(hudY); bb.putFloat(hudHo); bb.putFloat(hudPitch);
                             try { mOut.write(bb.array()); } catch (Exception e) {}
                         }
-                    } else {
-                        isTargetVisible = false;
-                    }
+                    } else { isTargetVisible = false; }
                 })
                 .addOnCompleteListener(task -> isProcessing.set(false));
     }
@@ -307,9 +356,7 @@ public class TouchService extends AccessibilityService {
     @Override public void onDestroy() {
         super.onDestroy();
         isConnected = false;
-        if (mHudView != null && mWindowManager != null) {
-            try { mWindowManager.removeView(mHudView); } catch (Exception e) {}
-        }
+        if (mHudView != null && mWindowManager != null) try { mWindowManager.removeView(mHudView); } catch (Exception e) {}
         if (mVirtualDisplay != null) mVirtualDisplay.release();
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
