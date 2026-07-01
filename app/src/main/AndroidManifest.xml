@@ -2,11 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🌌 QUYỀN BẤT TỬ & HỆ THỐNG -->
+    <!-- 🌌 QUYỀN BẤT TỬ & HỆ THỐNG (Tương thích mọi SDK) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -35,14 +34,9 @@
         <service
             android:name=".TouchService"
             android:exported="true"
-            android:foregroundServiceType="specialUse|mediaProjection"
+            android:foregroundServiceType="mediaProjection"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             
-            <!-- 🛡️ KHAI BÁO LÝ DO SỬ DỤNG FOREGROUND SERVICE (Bắt buộc cho Android 14+) -->
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Maintains low-latency TCP connection and real-time vision processing for accessibility assistance." />
-
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
