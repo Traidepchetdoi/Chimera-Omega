@@ -302,7 +302,7 @@ public class TouchService extends AccessibilityService {
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
-        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 25);
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 40);
         dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), new GestureResultCallback() {
             @Override public void onCompleted(GestureDescription gestureDescription) { isGestureRunning = false; }
             @Override public void onCancelled(GestureDescription gestureDescription) { isGestureRunning = false; }
