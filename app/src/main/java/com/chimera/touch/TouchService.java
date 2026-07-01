@@ -6,7 +6,6 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
-import android.content.pm.ServiceInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -49,25 +48,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TouchService extends AccessibilityService {
     private static final String TAG = "OmegaMaster";
     
-    // 🌌 CORE VARIABLES
     private MediaProjection mMediaProjection;
     private VirtualDisplay mVirtualDisplay;
     private ImageReader mImageReader;
     private FaceDetector mFaceDetector;
     private Handler mHandler = new Handler();
     
-    // 🔗 TCP VARIABLES
     private Socket mSocket;
     private OutputStream mOut;
     private InputStream mIn;
     private boolean isConnected = false;
     
-    // ⚙️ STATE VARIABLES
     private AtomicBoolean isProcessing = new AtomicBoolean(false);
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
 
-    // 🕶️ HUD VARIABLES
     private WindowManager mWindowManager;
     private View mHudView;
     private float hudX = 600, hudY = 1332, hudHo = 50, hudPitch = 0;
@@ -76,7 +71,7 @@ public class TouchService extends AccessibilityService {
 
     @Override
     public void onServiceConnected() {
-        // 🚀 1. KÍCH HOẠT CHẾ ĐỘ BẤT TỬ (FOREGROUND SERVICE)
+        // 🚀 1. KÍCH HOẠT BẤT TỬ (ĐÃ VÁ LỖI CRASH)
         startOmegaForeground();
         
         // 👁️ 2. KHỞI TẠO THỊ GIÁC & HUD
@@ -90,7 +85,6 @@ public class TouchService extends AccessibilityService {
     private void startOmegaForeground() {
         String channelId = "omega_immortal_channel";
         
-        // Tạo kênh thông báo (Android 8.0+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 channelId, "Omega Core System", NotificationManager.IMPORTANCE_LOW
@@ -100,7 +94,6 @@ public class TouchService extends AccessibilityService {
             if (manager != null) manager.createNotificationChannel(channel);
         }
 
-        // 🛡️ XIN QUYỀN BỎ QUA TỐI ƯU HÓA PIN (Chống Android giết ngầm)
         try {
             String packageName = getPackageName();
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
@@ -112,7 +105,6 @@ public class TouchService extends AccessibilityService {
             }
         } catch (Exception e) { Log.w(TAG, "Không thể xin quyền Pin: " + e.getMessage()); }
 
-        // 📜 TẠO THÔNG BÁO GHIM (Để Kernel bảo vệ tiến trình)
         Notification.Builder builder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder = new Notification.Builder(this, channelId);
@@ -122,18 +114,16 @@ public class TouchService extends AccessibilityService {
 
         Notification notification = builder
             .setContentTitle("🌌 OMEGA CORE ACTIVE")
-            .setContentText("Hệ thống Thị giác & Động học đang chạy ngầm.")
+            .setContentText("Đã kết nối Trợ năng. Chờ bấm Bắt đầu Thị giác.")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setOngoing(true) // Ghim cứng
+            .setOngoing(true)
             .setPriority(Notification.PRIORITY_LOW)
             .build();
 
-        // 🚀 ĐẨY LÊN FOREGROUND (Khớp cờ mediaProjection với Manifest)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1337, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        } else {
-            startForeground(1337, notification);
-        }
+        // 🛡️ VÁ LỖI CRASH: CHỈ DÙNG FOREGROUND CƠ BẢN
+        // Không dùng ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION ở đây
+        // vì người dùng CHƯA bấm nút "Start Now" của hệ thống.
+        startForeground(1337, notification);
     }
 
     private void initReactiveHud() {
@@ -154,56 +144,53 @@ public class TouchService extends AccessibilityService {
                 super.onDraw(canvas);
                 if (!isTargetVisible) return;
 
-                Paint paint = new Paint();
-                paint.setAntiAlias(true);
-                paint.setStyle(Paint.Style.STROKE);
-                
-                // 🦴 TÍNH TỌA ĐỘ VỰC THẲM (Abyssal Offset + Vitruvian Pitch)
+                Paint paintShadow = new Paint();
+                paintShadow.setAntiAlias(true);
+                paintShadow.setColor(Color.BLACK);
+                paintShadow.setAlpha(180);
+                paintShadow.setStrokeCap(Paint.Cap.ROUND);
+
+                Paint paintLine = new Paint();
+                paintLine.setAntiAlias(true);
+                paintLine.setStrokeCap(Paint.Cap.ROUND);
+
                 float safe_ho = Math.max(hudHo, 5.0f);
                 float perspectiveOffset = (safe_ho * 0.85f) + (5000.0f / safe_ho);
                 float pitchRad = hudPitch * 0.0174533f;
                 float postureShift = (float)Math.sin(pitchRad) * safe_ho * 1.5f;
                 
                 float finalY = hudY + perspectiveOffset + postureShift;
+                float finalX = hudX;
                 
-                // 🎯 ĐO KHOẢNG CÁCH ĐẾN TÂM MÀN HÌNH (Suy luận Trạng thái Khóa)
-                float dx = hudX - screenCenterX;
+                float dx = finalX - screenCenterX;
                 float dy = finalY - screenCenterY;
-                float distToCenter = (float)Math.sqrt(dx*dx + dy*dy);
+                float dist = (float)Math.sqrt(dx*dx + dy*dy);
 
-                float baseRadius = 35.0f;
-                float time = System.currentTimeMillis();
-                float pulse = (float)Math.sin(time * 0.015) * 8.0f;
-
-                if (distToCenter < 30.0f) {
-                    // 🔴 ĐÃ KHÓA CHẶT (ĐỎ RỰC - CO BÓP)
-                    paint.setColor(Color.RED);
-                    paint.setStrokeWidth(6.0f);
-                    paint.setAlpha(255);
-                    canvas.drawCircle(hudX, finalY, baseRadius + pulse, paint);
+                if (dist < 40.0f) {
+                    paintShadow.setStrokeWidth(12.0f);
+                    canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintShadow);
+                    canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintShadow);
                     
-                    // Dấu X Tử thần
-                    paint.setStrokeWidth(3.0f);
-                    canvas.drawLine(hudX - 12, finalY - 12, hudX + 12, finalY + 12, paint);
-                    canvas.drawLine(hudX - 12, finalY + 12, hudX + 12, finalY - 12, paint);
-                    
-                } else if (distToCenter < 150.0f) {
-                    // 🟡 ĐANG KÉO (VÀNG)
-                    paint.setColor(Color.YELLOW);
-                    paint.setStrokeWidth(4.0f);
-                    paint.setAlpha(200);
-                    float dynamicRadius = baseRadius + (distToCenter / 3.0f);
-                    canvas.drawCircle(hudX, finalY, dynamicRadius, paint);
-                    
+                    paintLine.setColor(Color.RED);
+                    paintLine.setStrokeWidth(6.0f);
+                    paintLine.setAlpha(255);
+                    canvas.drawLine(screenCenterX - 50, screenCenterY, screenCenterX + 50, screenCenterY, paintLine);
+                    canvas.drawLine(screenCenterX, screenCenterY - 50, screenCenterX, screenCenterY + 50, paintLine);
                 } else {
-                    // ⚪ NGOÀI TẦM (XÁM)
-                    paint.setColor(Color.GRAY);
-                    paint.setStrokeWidth(2.0f);
-                    paint.setAlpha(100);
-                    canvas.drawCircle(hudX, finalY, baseRadius, paint);
+                    paintShadow.setStrokeWidth(10.0f);
+                    canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintShadow);
+                    
+                    paintLine.setColor(Color.YELLOW);
+                    paintLine.setStrokeWidth(5.0f);
+                    paintLine.setAlpha(255);
+                    canvas.drawLine(screenCenterX, screenCenterY, finalX, finalY, paintLine);
+                    
+                    paintLine.setStyle(Paint.Style.STROKE);
+                    paintLine.setStrokeWidth(4.0f);
+                    canvas.drawCircle(finalX, finalY, 25.0f, paintShadow);
+                    canvas.drawCircle(finalX, finalY, 25.0f, paintLine);
                 }
-                
-                if (isTargetVisible) invalidate(); // Vẽ lại liên tục
+                if (isTargetVisible) invalidate();
             }
         };
         
@@ -312,7 +299,6 @@ public class TouchService extends AccessibilityService {
                         Face bestTarget = null;
                         float minDistSq = Float.MAX_VALUE;
                         
-                        // 🧠 TRÍ TUỆ CHIẾN TRƯỜNG: CHỌN KẺ GẦN TÂM NGẮM NHẤT
                         for (Face face : faces) {
                             float fx = face.getBoundingBox().exactCenterX() * SCALE_FACTOR;
                             float fy = face.getBoundingBox().exactCenterY() * SCALE_FACTOR;
@@ -336,7 +322,6 @@ public class TouchService extends AccessibilityService {
                 .addOnCompleteListener(task -> isProcessing.set(false));
     }
 
-    // 🛡️ SAFE DRAG VỚI CALLBACK (CHỐNG TRÀN INPUTDISPATCHER & ĐƠ MÁY)
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         isGestureRunning = true;
@@ -345,6 +330,7 @@ public class TouchService extends AccessibilityService {
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
+        // 🚀 TỐC ĐỘ 30ms
         GestureDescription.StrokeDescription stroke = 
             new GestureDescription.StrokeDescription(path, 0, 30);
             
@@ -364,4 +350,4 @@ public class TouchService extends AccessibilityService {
         if (mMediaProjection != null) mMediaProjection.stop();
         try { if (mSocket != null) mSocket.close(); } catch (Exception e) {}
     }
-                                }
+}
