@@ -2,36 +2,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🔐 QUYỀN MẠNG & INTERNET -->
+    <!-- 🌌 QUYỀN BẤT TỬ & HỆ THỐNG -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    
-    <!-- 📱 QUYỀN FOREGROUND SERVICE (Sống sót trên Android 14/15/16) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    
-    <!-- 🔋 QUYỀN GIỮ APP KHÔNG BỊ GIẾT NGẦM -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    
-    <!-- 🖥️ QUYỀN OVERLAY -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
-        android:name=".ChimeraApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.AppCompat"
-        android:allowBackup="false"
-        android:largeHeap="true"
-        android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true"
-        tools:targetApi="34">
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ChimeraOmega"
+        tools:targetApi="31">
 
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:screenOrientation="portrait">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -40,15 +34,22 @@
 
         <service
             android:name=".TouchService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection">
+            android:exported="true"
+            android:foregroundServiceType="specialUse|mediaProjection"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            
+            <!-- 🛡️ KHAI BÁO LÝ DO SỬ DỤNG FOREGROUND SERVICE (Bắt buộc cho Android 14+) -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintains low-latency TCP connection and real-time vision processing for accessibility assistance." />
+
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
+
             <meta-data
                 android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_config" />
+                android:resource="@xml/accessibility_service_config" />
         </service>
     </application>
 </manifest>
