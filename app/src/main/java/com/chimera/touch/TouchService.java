@@ -177,13 +177,11 @@ public class TouchService extends AccessibilityService {
     public void dispatchSafeDrag(float sx, float sy, float ex, float ey) {
         if (isGestureRunning) return; 
         
-        // 🛡️ ĐỒNG BỘ TỌA ĐỘ
         if (mLastEndX != -1f) {
             sx = mLastEndX;
             sy = mLastEndY;
         }
         
-        // 🚫 PHYSICAL UI SHIELD (LÁ CHẮN VẬT LÝ)
         float safeTopZone = getResources().getDisplayMetrics().heightPixels * 0.65f;
         if (sy > safeTopZone) sy = safeTopZone;
         if (ey > safeTopZone) ey = safeTopZone;
@@ -192,16 +190,18 @@ public class TouchService extends AccessibilityService {
         float dy = ey - sy;
         float dist = (float)Math.sqrt(dx*dx + dy*dy);
         
-        if (dist < 8.0f) return; 
+        // 🛡️ SECONDARY FIREWALL: Chặn đứng MỌI cú vuốt < 15px (Tuyệt đối không cho Android biến thành TAP)
+        if (dist < 15.0f) return; 
         
-        int duration = 30; 
+        // 🚀 DYNAMIC DURATION: Vuốt càng dài, thời gian càng lâu để Android luôn nhận diện là DRAG (Không bị quán tính Fling)
+        int duration = 30 + (int)(dist * 1.2f); 
+        if (duration > 100) duration = 100;
         
         isGestureRunning = true;
         Path path = new Path();
         path.moveTo(sx, sy);
         path.lineTo(ex, ey);
         
-        // 🧊 ĐÓNG BĂNG TỌA ĐỘ (Bypass luật Effectively Final của Java)
         final float fEx = ex;
         final float fEy = ey;
         
