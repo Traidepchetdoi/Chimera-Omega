@@ -221,6 +221,7 @@ public class TouchService extends AccessibilityService {
                     float bestX = -1, bestY = -1, bestHo = 40.0f;
                     boolean found = false;
 
+                    // 🔍 PHA 1: ML KIT (Ưu tiên cao nhất - Nếu may mắn thấy mặt)
                     if (isConnected && !faces.isEmpty()) {
                         float imgCenterX = (image.getWidth() * SCALE_FACTOR) / 2.0f;
                         float imgCenterY = (image.getHeight() * SCALE_FACTOR) / 2.0f;
@@ -238,37 +239,80 @@ public class TouchService extends AccessibilityService {
                         }
                     }
 
+                    // 🕸️ PHA 2: VARIANCE GRID (SĂN LÙNG CẤU TRÚC 3D - BẤT CHẤP KHÔNG CÓ MÁU)
                     if (!found && isConnected) {
+                        int w = image.getWidth();
+                        int h = image.getHeight();
                         Image.Plane plane = image.getPlanes()[0];
                         java.nio.ByteBuffer buffer = plane.getBuffer();
                         int pixelStride = plane.getPixelStride();
                         int rowStride = plane.getRowStride();
-                        int width = image.getWidth();
-                        int height = image.getHeight();
-                        long sumX = 0, sumY = 0;
-                        int count = 0;
-                        int startY = 0;
-                        int endY = height * 3 / 4;
-                        for (int y = startY; y < endY; y += 4) {
-                            int rowOffset = y * rowStride;
-                            for (int x = width / 6; x < (width * 5 / 6); x += 4) {
-                                int pixelOffset = rowOffset + x * pixelStride;
-                                if (pixelOffset + 2 >= buffer.capacity()) continue;
-                                int r = buffer.get(pixelOffset) & 0xFF;
-                                int g = buffer.get(pixelOffset + 1) & 0xFF;
-                                int b = buffer.get(pixelOffset + 2) & 0xFF;
-                                if (r > 180 && g < 70 && b < 70) {
-                                    sumX += x; sumY += y; count++;
+
+                        int gridX = 12; // Chia 12 cột
+                        int gridY = 16; // Chia 16 hàng
+                        int blockW = w / gridX;
+                        int blockH = h / gridY;
+
+                        float maxScore = 0;
+                        int bestCX = -1, bestCY = -1;
+
+                        // Quét vùng trung tâm (Bỏ qua rìa trên/dưới nơi có UI của Game)
+                        for (int gy = 4; gy < 12; gy++) {
+                            for (int gx = 3; gx < 9; gx++) {
+                                long sum = 0;
+                                long sumSq = 0;
+                                int count = 0;
+                                
+                                int startX = gx * blockW;
+                                int startY = gy * blockH;
+                                
+                                // Lấy mẫu 16 điểm trong ô để tiết kiệm CPU
+                                for (int i = 0; i < 4; i++) {
+                                    for (int j = 0; j < 4; j++) {
+                                        int x = startX + (i * blockW / 4);
+                                        int y = startY + (j * blockH / 4);
+                                        int offset = y * rowStride + x * pixelStride;
+                                        if (offset + 2 >= buffer.capacity()) continue;
+                                        
+                                        int r = buffer.get(offset) & 0xFF;
+                                        int g = buffer.get(offset + 1) & 0xFF;
+                                        int b = buffer.get(offset + 2) & 0xFF;
+                                        int lum = (r + g + b) / 3; // Độ sáng
+                                        
+                                        sum += lum;
+                                        sumSq += lum * lum;
+                                        count++;
+                                    }
+                                }
+                                
+                                if (count > 0) {
+                                    float mean = sum / count;
+                                    float variance = (sumSq / count) - (mean * mean); // Phương sai (Độ phức tạp)
+                                    
+                                    // Trọng số: Ưu tiên ô có nhiều chi tiết VÀ nằm gần tâm màn hình
+                                    float centerX = (gx + 0.5f) / gridX;
+                                    float centerY = (gy + 0.5f) / gridY;
+                                    float distToCenter = (float)Math.sqrt(Math.pow(centerX - 0.5, 2) + Math.pow(centerY - 0.5, 2));
+                                    float score = variance * (1.5f - distToCenter); 
+                                    
+                                    if (score > maxScore) {
+                                        maxScore = score;
+                                        bestCX = (int)((gx + 0.5f) * blockW);
+                                        bestCY = (int)((gy + 0.5f) * blockH);
+                                    }
                                 }
                             }
                         }
-                        if (count > 5) {
-                            bestX = (sumX / count) * SCALE_FACTOR;
-                            bestY = (sumY / count) * SCALE_FACTOR;
+
+                        // Ngưỡng phương sai > 600 nghĩa là vùng đó có "Cạnh / Góc / Cấu trúc 3D" (Không phải tường phẳng hay trời)
+                        if (maxScore > 600 && bestCX != -1) {
+                            bestX = bestCX * SCALE_FACTOR;
+                            bestY = bestCY * SCALE_FACTOR;
                             found = true;
                         }
                     }
 
+                    // 📡 KÍCH HOẠT HUD & GỬI XUỐNG C++
                     if (found) {
                         hudX = bestX; hudY = bestY; hudHo = bestHo;
                         isTargetVisible = true;
