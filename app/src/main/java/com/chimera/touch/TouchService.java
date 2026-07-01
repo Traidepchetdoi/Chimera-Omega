@@ -46,7 +46,9 @@ public class TouchService extends AccessibilityService {
     private volatile boolean isGestureRunning = false; 
     private float SCALE_FACTOR = 4.0f; 
     private long lastFrameTime = 0;
-    private float lastEndX = -1;
+
+    // 🛡️ KHAI BÁO BIẾN TOÀN CỤC (Bắt buộc phải nằm ở đây, không được nằm trong hàm)
+    private float lastEndX = -1; 
     private float lastEndY = -1;
 
     @Override
