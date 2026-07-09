@@ -2,8 +2,10 @@ package com.omega.host;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
+import android.content.Intent;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
@@ -35,7 +37,7 @@ public class HostAccessibility extends AccessibilityService {
     private float screenCX, screenCY, screenW, screenH;
     private boolean userTouching = false;
     
-    // 🎯 VÙNG CHẾT TOÀN PHẦN: 80px (Bao trùm toàn bộ đầu địch)
+    // 🎯 VÙNG CHẾT TOÀN PHẦN: 80px
     private static final float DEADZONE = 80.0f;
 
     @Override
@@ -92,10 +94,15 @@ public class HostAccessibility extends AccessibilityService {
 
                 if (!faces.isEmpty()) {
                     for (Face face : faces) {
-                        android.graphics.RectF box = face.getBoundingBox();
+                        // 🛡️ ĐÃ VÁ: ML Kit trả về Rect, không phải RectF
+                        Rect box = face.getBoundingBox();
+                        
+                        // exactCenterX() và exactCenterY() hoạt động hoàn hảo trên Rect
                         float fx = box.exactCenterX() * SCALE_FACTOR;
+                        
                         // 🔑 KHÓA NGAY VÙNG MẮT/TRÁN: top + 25% height
-                        float fy = box.top * SCALE_FACTOR + (box.height() * SCALE_FACTOR * 0.25f);
+                        float fy = (box.top + (box.height() * 0.25f)) * SCALE_FACTOR;
+                        
                         float distSq = (fx - screenCX)*(fx - screenCX) + (fy - screenCY)*(fy - screenCY);
                         if (distSq < minDistSq) {
                             minDistSq = distSq;
@@ -110,16 +117,14 @@ public class HostAccessibility extends AccessibilityService {
                     float errY = bestY - screenCY;
                     float dist = (float)Math.sqrt(errX*errX + errY*errY);
 
-                    // 🚫 TUYỆT ĐỐI KHÔNG VUỐT KHI:
-                    // 1. User đang chạm màn hình (Zero Resistance)
-                    // 2. Tâm đã trong vùng 80px quanh đầu địch (Target Freeze)
+                    // 🚫 TUYỆT ĐỐI KHÔNG VUỐT KHI CHẠM MÀN HÌNH HOẶC TRONG VÙNG 80PX
                     if (userTouching || dist < DEADZONE) {
                         isProcessing = false;
                         image.close();
                         return;
                     }
 
-                    // ✅ Chỉ vuốt khi: Buông tay + Tâm ở xa đầu địch
+                    // ✅ VUỐT TỰ DO KHI BUÔNG TAY VÀ Ở XA
                     Path path = new Path();
                     path.moveTo(screenCX, screenCY);
                     path.lineTo(bestX, bestY);
