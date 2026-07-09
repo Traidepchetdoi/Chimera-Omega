@@ -22,11 +22,14 @@ import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Date;
 
 public class HostAccessibility extends AccessibilityService {
     private static HostAccessibility instance;
@@ -41,11 +44,36 @@ public class HostAccessibility extends AccessibilityService {
     private float screenCX, screenCY, screenW, screenH;
     private boolean userTouching = false;
     
-    // 🧠 TCP CLIENT: Kết nối tới Bộ Não C++
     private Socket socket;
     private OutputStream outStream;
     private InputStream inStream;
     private boolean tcpConnected = false;
+
+    // 🩸 BỘ GHI LOG TỰ VỆ (SELF-DEFENSIVE LOGGER)
+    private void logCrash(Throwable e) {
+        try {
+            File logDir = getExternalFilesDir(null);
+            if (logDir == null) return;
+            File logFile = new File(logDir, "omega_crash.log");
+            FileWriter fw = new FileWriter(logFile, true);
+            fw.write("\n[" + new Date() + "] 💀 ZOMBIE CRASH: " + e.toString() + "\n");
+            for (StackTraceElement ste : e.getStackTrace()) {
+                fw.write("    at " + ste.toString() + "\n");
+            }
+            fw.flush();
+            fw.close();
+        } catch (Exception ex) { /* Bỏ qua lỗi ghi log */ }
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        // 🛡️ BẪY MỌI CÚ CRASH CỦA LUỒNG (GLOBAL EXCEPTION HANDLER)
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            logCrash(e);
+            // Để OS giết process, Termux Defibrillator sẽ hồi sinh nó sau 2s
+        });
+    }
 
     @Override
     public void onServiceConnected() {
@@ -54,11 +82,8 @@ public class HostAccessibility extends AccessibilityService {
         screenW = m.widthPixels; screenH = m.heightPixels;
         screenCX = screenW / 2f; screenCY = screenH / 2f;
         
-        FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).build();
-        mFaceDetector = FaceDetection.getClient(options);
+        initFaceDetector();
         
-        // 🚀 Khởi động Luồng Giao Tiếp Với C++
         new Thread(() -> {
             while (true) {
                 try {
@@ -86,25 +111,36 @@ public class HostAccessibility extends AccessibilityService {
         }).start();
     }
 
+    private void initFaceDetector() {
+        try {
+            if (mFaceDetector != null) mFaceDetector.close();
+            FaceDetectorOptions options = new FaceDetectorOptions.Builder()
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).build();
+            mFaceDetector = FaceDetection.getClient(options);
+        } catch (Exception e) { logCrash(e); }
+    }
+
     public static void startCapture(int code, Intent data) {
         if (instance != null) instance._startCapture(code, data);
     }
 
     private void _startCapture(int code, Intent data) {
-        MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        mProjection = mgr.getMediaProjection(code, data);
-        int cW = (int)(screenW / SCALE_FACTOR); int cH = (int)(screenH / SCALE_FACTOR);
-        mImageReader = ImageReader.newInstance(cW, cH, PixelFormat.RGBA_8888, 2);
-        mVirtualDisplay = mProjection.createVirtualDisplay("Omega", cW, cH,
-                getResources().getDisplayMetrics().densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                mImageReader.getSurface(), null, null);
+        try {
+            MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            mProjection = mgr.getMediaProjection(code, data);
+            int cW = (int)(screenW / SCALE_FACTOR); int cH = (int)(screenH / SCALE_FACTOR);
+            mImageReader = ImageReader.newInstance(cW, cH, PixelFormat.RGBA_8888, 2);
+            mVirtualDisplay = mProjection.createVirtualDisplay("Omega", cW, cH,
+                    getResources().getDisplayMetrics().densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    mImageReader.getSurface(), null, null);
 
-        mImageReader.setOnImageAvailableListener(ir -> {
-            Image img = ir.acquireLatestImage();
-            if (img != null && !isProcessing) { isProcessing = true; processImage(img); } 
-            else if (img != null) img.close();
-        }, mHandler);
+            mImageReader.setOnImageAvailableListener(ir -> {
+                Image img = ir.acquireLatestImage();
+                if (img != null && !isProcessing) { isProcessing = true; processImage(img); } 
+                else if (img != null) img.close();
+            }, mHandler);
+        } catch (Exception e) { logCrash(e); }
     }
 
     private void sendToCpp(float hX, float hY, boolean found) {
@@ -117,41 +153,59 @@ public class HostAccessibility extends AccessibilityService {
             bb.putFloat(found ? 1.0f : 0.0f);
             bb.putFloat(0); bb.putFloat(0);
             outStream.write(bb.array());
-        } catch (Exception e) {}
+        } catch (Exception e) { tcpConnected = false; }
     }
 
     private void processImage(@NonNull Image image) {
-        InputImage input = InputImage.fromMediaImage(image, 0);
-        mFaceDetector.process(input)
-            .addOnSuccessListener(faces -> {
-                float bestX = -1, bestY = -1;
-                float minDistSq = Float.MAX_VALUE;
-                if (!faces.isEmpty()) {
-                    for (Face face : faces) {
-                        android.graphics.Rect box = face.getBoundingBox();
-                        float fx = box.exactCenterX() * SCALE_FACTOR;
-                        float fy = (box.top + (box.height() * 0.25f)) * SCALE_FACTOR;
-                        float distSq = (fx - screenCX)*(fx - screenCX) + (fy - screenCY)*(fy - screenCY);
-                        if (distSq < minDistSq) { minDistSq = distSq; bestX = fx; bestY = fy; }
+        try {
+            InputImage input = InputImage.fromMediaImage(image, 0);
+            mFaceDetector.process(input)
+                .addOnSuccessListener(faces -> {
+                    try {
+                        float bestX = -1, bestY = -1;
+                        float minDistSq = Float.MAX_VALUE;
+                        if (!faces.isEmpty()) {
+                            for (Face face : faces) {
+                                android.graphics.Rect box = face.getBoundingBox();
+                                float fx = box.exactCenterX() * SCALE_FACTOR;
+                                float fy = (box.top + (box.height() * 0.25f)) * SCALE_FACTOR;
+                                float distSq = (fx - screenCX)*(fx - screenCX) + (fy - screenCY)*(fy - screenCY);
+                                if (distSq < minDistSq) { minDistSq = distSq; bestX = fx; bestY = fy; }
+                            }
+                        }
+                        if (bestX > 0) sendToCpp(bestX, bestY, true);
+                        else sendToCpp(0, 0, false);
+                    } catch (Exception e) { logCrash(e); }
+                    finally {
+                        isProcessing = false; 
+                        image.close();
                     }
-                }
-                // 📡 Gửi Tọa Độ Thô Xuống Bộ Não C++
-                if (bestX > 0) sendToCpp(bestX, bestY, true);
-                else sendToCpp(0, 0, false);
-                
-                isProcessing = false; image.close();
-            }).addOnCompleteListener(task -> {});
+                })
+                .addOnFailureListener(e -> {
+                    logCrash(e);
+                    isProcessing = false;
+                    image.close();
+                });
+        } catch (Exception e) {
+            logCrash(e);
+            isProcessing = false;
+            image.close();
+        }
     }
 
     private void doSwipe(float cx, float cy, float tx, float ty, int dur) {
-        Path p = new Path(); p.moveTo(cx, cy); p.lineTo(tx, ty);
-        GestureDescription.StrokeDescription s = new GestureDescription.StrokeDescription(p, 0, Math.max(8, dur));
-        dispatchGesture(new GestureDescription.Builder().addStroke(s).build(), null, null);
+        try {
+            Path p = new Path(); p.moveTo(cx, cy); p.lineTo(tx, ty);
+            GestureDescription.StrokeDescription s = new GestureDescription.StrokeDescription(p, 0, Math.max(8, dur));
+            dispatchGesture(new GestureDescription.Builder().addStroke(s).build(), null, null);
+        } catch (Exception e) { logCrash(e); }
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event.getEventType() == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) userTouching = true;
-        else if (event.getEventType() == AccessibilityEvent.TYPE_TOUCH_INTERACTION_END) userTouching = false;
+        try {
+            if (event.getEventType() == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START) userTouching = true;
+            else if (event.getEventType() == AccessibilityEvent.TYPE_TOUCH_INTERACTION_END) userTouching = false;
+        } catch (Exception e) {}
     }
     @Override public void onInterrupt() {}
     @Override public void onDestroy() {
