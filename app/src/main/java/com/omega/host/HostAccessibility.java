@@ -40,7 +40,7 @@ public class HostAccessibility extends AccessibilityService {
     private Handler mHandler = new Handler();
     private boolean isProcessing = false;
     
-    private float SCALE_FACTOR = 4.0f;
+    private float SCALE_FACTOR = 6.0f;
     private float screenCX, screenCY, screenW, screenH;
     private boolean userTouching = false;
     
