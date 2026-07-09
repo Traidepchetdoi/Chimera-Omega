@@ -1,0 +1,2 @@
+rootProject.name = "OmegaHost"
+include ':app'
