@@ -5,6 +5,13 @@ plugins {
 android {
     namespace 'com.omega.host'
     compileSdk 34
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+    ndkVersion "25.1.8937393" // Ép GitHub dùng NDK bản ổn định
 
     defaultConfig {
         applicationId "com.omega.host"
