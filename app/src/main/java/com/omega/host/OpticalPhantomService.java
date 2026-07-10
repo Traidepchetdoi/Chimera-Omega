@@ -41,7 +41,7 @@ public class OpticalPhantomService extends Service {
     static { System.loadLibrary("omega_core"); }
     
     // CHỮ KÝ JNI ĐỒNG BỘ VỚI C++
-    public native float[] processOpticalFrame(HardwareBuffer buffer, int w, int h);
+    public native float[] processOpticalFrame(java.nio.ByteBuffer buffer, int w, int h, int rowStride);
 
     @Override
     public void onCreate() {
@@ -95,10 +95,38 @@ public class OpticalPhantomService extends Service {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader.getSurface(), null, null);
 
         // VÒNG LẶP QUÉT QUANG HỌC
-        imageReader.setOnImageAvailableListener(reader -> {
-            Image image = reader.acquireLatestImage(); // Chỉ lấy frame mới nhất, chống lag
+                imageReader.setOnImageAvailableListener(reader -> {
+            Image image = reader.acquireLatestImage();
             if (image != null) {
-                HardwareBuffer hwBuffer = image.getHardwareBuffer();
+                // Trích xuất mặt phẳng bộ nhớ (Memory Plane) từ Image
+                Image.Plane[] planes = image.getPlanes();
+                if (planes.length > 0) {
+                    java.nio.ByteBuffer buffer = planes[0].getBuffer();
+                    int rowStride = planes[0].getRowStride(); // Độ rộng thực tế của dòng byte (bao gồm padding)
+                    
+                    // NÉM XUỐNG C++
+                    float[] result = processOpticalFrame(buffer, screenWidth, screenHeight, rowStride);
+                    
+                    if (result != null && result.length >= 3 && result[2] == 1.0f) {
+                        float targetX = result[0];
+                        float targetY = result[1];
+                        
+                        Handler handler = new Handler(Looper.getMainLooper());
+                        handler.post(() -> {
+                            if (ghostReticle != null && ghostReticle.isAttachedToWindow()) {
+                                WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
+                                p.x = (int)targetX - 75;
+                                p.y = (int)targetY - 75;
+                                try {
+                                    windowManager.updateViewLayout(ghostReticle, p);
+                                } catch (Exception e) { /* Bỏ qua lỗi layout */ }
+                            }
+                        });
+                    }
+                }
+                image.close();
+            }
+        }, null);
                 
                 // NÉM XUỐNG C++ ĐỂ TÍNH TOÁN TỌA ĐỘ ĐẦU ĐỊCH
                 float[] result = processOpticalFrame(hwBuffer, screenWidth, screenHeight);
