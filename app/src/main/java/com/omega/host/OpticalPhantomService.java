@@ -12,13 +12,8 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.util.DisplayMetrics;
-import android.view.Gravity;
-import android.view.WindowManager;
-import android.widget.ImageView;
 import androidx.core.app.NotificationCompat;
 import java.nio.ByteBuffer;
 
@@ -26,8 +21,6 @@ public class OpticalPhantomService extends Service {
     public static int mResultCode = -1;
     public static Intent mResultIntent = null;
 
-    private WindowManager windowManager;
-    private ImageView ghostReticle;
     private ImageReader imageReader;
     private VirtualDisplay virtualDisplay;
     private MediaProjection mediaProjection;
@@ -41,32 +34,12 @@ public class OpticalPhantomService extends Service {
         super.onCreate();
         createNotificationChannel();
         startForeground(1, createNotification());
-        setupOverlay();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (mResultCode != -1 && mResultIntent != null) {
-            engageOpticalTrap(mResultCode, mResultIntent);
-        }
+        if (mResultCode != -1 && mResultIntent != null) engageOpticalTrap(mResultCode, mResultIntent);
         return START_STICKY;
-    }
-
-    private void setupOverlay() {
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        ghostReticle = new ImageView(this);
-        ghostReticle.setImageResource(android.R.drawable.ic_menu_crop); // Tâm súng giả
-        ghostReticle.setAlpha(0.8f);
-        
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                150, 150,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | 
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-        windowManager.addView(ghostReticle, params);
     }
 
     private void engageOpticalTrap(int resultCode, Intent data) {
@@ -92,26 +65,14 @@ public class OpticalPhantomService extends Service {
                     float[] result = processOpticalFrame(buffer, screenWidth, screenHeight, rowStride);
                     
                     if (result != null && result.length >= 4) {
-                        // 1. AIM LOCK
-                        if (result[2] == 1.0f) {
-                            final float tx = result[0];
-                            final float ty = result[1];
-                            new Handler(Looper.getMainLooper()).post(() -> {
-                                if (ghostReticle != null && ghostReticle.isAttachedToWindow()) {
-                                    WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
-                                    p.x = (int)tx - 75;
-                                    p.y = (int)ty - 75;
-                                    try { windowManager.updateViewLayout(ghostReticle, p); } catch (Exception e) {}
-                                }
-                            });
+                        // 1. TRUYỀN DELTA CHO CÁNH TAY NHÍCH VI MÔ
+                        if (OmegaMacroService.instance != null) {
+                            OmegaMacroService.instance.injectMicroSwipe(result[0], result[1], result[2] == 1.0f);
                         }
                         
-                        // 2. INFINITY HEALTH (AUTO MEDKIT)
+                        // 2. INFINITY SỨC (AUTO MEDKIT)
                         if (result[3] == 1.0f && OmegaMacroService.instance != null) {
-                            // Tọa độ nút Medkit (Góc phải dưới - Tùy chỉnh theo game)
-                            int medkitX = screenWidth - 200; 
-                            int medkitY = screenHeight - 300;
-                            OmegaMacroService.instance.injectTap(medkitX, medkitY);
+                            OmegaMacroService.instance.injectTap(screenWidth - 200, screenHeight - 300);
                         }
                     }
                 }
@@ -128,7 +89,7 @@ public class OpticalPhantomService extends Service {
     private Notification createNotification() {
         return new NotificationCompat.Builder(this, "OMEGA_VISION")
                 .setContentTitle("Omega System")
-                .setContentText("Eternity Protocol Active")
+                .setContentText("Micro-Stepping Active")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .build();
     }
@@ -137,7 +98,6 @@ public class OpticalPhantomService extends Service {
     @Override public void onDestroy() {
         if (virtualDisplay != null) virtualDisplay.release();
         if (mediaProjection != null) mediaProjection.stop();
-        if (ghostReticle != null) windowManager.removeView(ghostReticle);
         super.onDestroy();
     }
 }
