@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cmath>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_SNIPER", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_4D", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -11,16 +11,15 @@ struct TargetState {
     bool needsHeal;
 };
 
-class SniperChainCore {
+class KinematicTracker {
 private:
-    double prevDX = 0, prevDY = 0;
+    double prevCX = 0, prevCY = 0; // Tọa độ tâm cụm ở frame trước
+    double velX = 0, velY = 0;     // Vận tốc di chuyển của đầu địch (pixel/frame)
     
-    // [OMEGA IRON CHAIN] LỰC CĂNG TUYỆT ĐỐI
-    const double Kp = 2.5;             
-    const double Kd = 1.5;             
-    const double MIN_TENSION = 120.0;  
-    const double MAX_TENSION = 350.0;  
-
+    // [OMEGA 4D] HỆ SỐ VẬT LÝ
+    const double LEAD_FACTOR = 3.5;    // Hệ số đón đầu (Bù trừ Ping + Tốc độ đạn bay)
+    const double SMOOTHING = 0.6;      // Làm mượt vận tốc (Trống nhiễu do pixel nhảy)
+    
     double clamp(double v, double lo, double hi) {
         return (v < lo) ? lo : (v > hi) ? hi : v;
     }
@@ -29,12 +28,10 @@ public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
         TargetState state = {0, 0, false, false};
         
-        // Biến tích lũy cho Trọng tâm cụm (Centroid)
         double sumX = 0, sumY = 0;
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
-        // Quét toàn bộ màn hình
         for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
             for (int x = 0; x < width; x += 4) {
@@ -48,57 +45,70 @@ public:
             }
         }
 
-        // [ADAPTIVE TARGETING] HẠ NGƯỠNG XUỐNG 3 PIXEL ĐỂ BẮT MỤC TIÊU 400M
         if (pixelCount >= 3) { 
             int bw = maxX - minX;
             int bh = maxY - minY;
-            
-            double targetX, targetY;
+            double currentCX, currentCY;
 
-            // 1. CHẾ ĐỘ SNIPER TẦM XA (MICRO-CLUSTER)
-            // Nếu cụm pixel < 40 (Địch ở xa, chỉ là một chấm đỏ nhỏ)
-            if (pixelCount < 40) {
-                // Dùng Trọng tâm Toán học (Centroid). 
-                // Không cần nhân 0.32, vì bản thân cụm 3x3 pixel đó CHÍNH LÀ cái đầu.
-                targetX = sumX / pixelCount;
-                targetY = sumY / pixelCount;
-            } 
-            // 2. CHẾ ĐỘ CẬN CHIẾN (MACRO-BODY)
-            // Nếu cụm pixel >= 40 (Địch ở gần, hiện rõ toàn thân)
-            else {
-                targetX = minX + (bw / 2.0);
-                targetY = minY + (bh * 0.32); // Khóa trên lông mày
+            if (pixelCount < 40) { // Tầm xa (Sniper)
+                currentCX = sumX / pixelCount;
+                currentCY = sumY / pixelCount;
+            } else { // Tầm gần (Cận chiến)
+                currentCX = minX + (bw / 2.0);
+                currentCY = minY + (bh * 0.32); // Trên lông mày
             }
             
-            double dx = targetX - (width / 2.0);
-            double dy = targetY - (height / 2.0);
+            // 1. TÍNH VẬN TỐC TƯƠNG ĐỐI (RELATIVE VELOCITY)
+            if (prevCX != 0 && prevCY != 0) {
+                double rawVX = currentCX - prevCX;
+                double rawVY = currentCY - prevCY;
+                // Làm mượt vận tốc để tránh nhiễu do kẻ địch đổi hướng đột ngột
+                velX = (velX * (1.0 - SMOOTHING)) + (rawVX * SMOOTHING);
+                velY = (velY * (1.0 - SMOOTHING)) + (rawVY * SMOOTHING);
+            }
+            prevCX = currentCX; prevCY = currentCY;
 
-            // [IRON CHAIN] ÉP BUỘC LỰC CĂNG TỐI THIỂU
-            double rawX = dx * Kp;
-            double rawY = dy * Kp;
-
-            if (rawX > 0) rawX = fmax(rawX, MIN_TENSION);
-            else if (rawX < 0) rawX = fmin(rawX, -MIN_TENSION);
+            // 2. TỌA ĐỘ TƯƠNG LAI (LEAD ANGLE - ĐÓN ĐẦU QUỸ ĐẠO)
+            // Tâm súng sẽ nhắm vào nơi cái đầu SẼ ĐẾN, không phải nơi nó ĐANG Ở
+            double futureX = currentCX + (velX * LEAD_FACTOR);
+            double futureY = currentCY + (velY * LEAD_FACTOR);
             
-            if (rawY > 0) rawY = fmax(rawY, MIN_TENSION);
-            else if (rawY < 0) rawY = fmin(rawY, -MIN_TENSION);
+            double dx = futureX - (width / 2.0);
+            double dy = futureY - (height / 2.0);
 
-            double dX = (dx - prevDX) * Kd;
-            double dY = (dy - prevDY) * Kd;
+            // 3. ĐÀN HỒI THEO KHỐI LƯỢNG (MASS-ADAPTIVE ELASTICITY)
+            double pixelMass = bw * bh; // Diện tích pixel của địch
             
-            double finalX = rawX - dX;
-            double finalY = rawY - dY;
+            // Xa (Mass nhỏ): Lực kéo nhớt, bám mượt, chống giật cục.
+            // Gần (Mass lớn): Lực kéo thép, khóa cứng, ghim tâm.
+            double dynamicTension = (pixelMass < 100.0) ? 60.0 : 180.0; 
+            double maxTension = (pixelMass < 100.0) ? 150.0 : 400.0;
 
-            state.forceX = clamp(finalX, -MAX_TENSION, MAX_TENSION);
-            state.forceY = clamp(finalY, -MAX_TENSION, MAX_TENSION);
+            double rawX = dx * 2.0;
+            double rawY = dy * 2.0;
+
+            // Ép buộc lực căng tối thiểu (Để tâm không bị trôi khi địch đứng yên)
+            if (rawX > 0) rawX = fmax(rawX, dynamicTension);
+            else if (rawX < 0) rawX = fmin(rawX, -dynamicTension);
             
-            prevDX = dx; prevDY = dy;
+            if (rawY > 0) rawY = fmax(rawY, dynamicTension);
+            else if (rawY < 0) rawY = fmin(rawY, -dynamicTension);
+
+            // Lực hãm (Chỉ phanh khi tâm đang lao quá nhanh)
+            double dX = velX * 1.5; 
+            double dY = velY * 1.5;
+            
+            state.forceX = clamp(rawX - dX, -maxTension, maxTension);
+            state.forceY = clamp(rawY - dY, -maxTension, maxTension);
+            
             state.locked = true;
         } else {
-            prevDX = 0; prevDY = 0;
+            // Mất dấu: Giữ nguyên quán tính (Extrapolation)
+            prevCX += velX; prevCY += velY;
+            velX *= 0.9; velY *= 0.9; // Ma sát
         }
 
-        // Quét Máu (Infinity Sức)
+        // Quét Máu
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
@@ -123,7 +133,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    SniperChainCore core;
+    KinematicTracker core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
