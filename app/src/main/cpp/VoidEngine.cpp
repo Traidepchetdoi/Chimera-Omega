@@ -3,18 +3,21 @@
 #include <cstdint>
 #include <cmath>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_MICRO", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_PID", __VA_ARGS__)
 
 struct TargetState {
-    float dx, dy; // Độ lệch so với tâm màn hình
+    float forceX, forceY; // Lực đã được PID tính toán (Có cả lực hãm)
     bool locked;
     bool needsHeal;
 };
 
-class MicroStepCore {
+class PIDCore {
 private:
-    float smoothDX = 0, smoothDY = 0;
-    const float ALPHA = 0.65f; // Hệ số làm mượt (Ngăn cản nhiễu lượng tử pixel)
+    float prevDX = 0, prevDY = 0;
+    
+    // [OMEGA PID] THÔNG SỐ ĐIỀU KHIỂN
+    const float Kp = 0.12f;  // Lực kéo (Proportional)
+    const float Kd = 0.85f;  // Lực hãm (Derivative - Chống Overshoot)
 
 public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
@@ -22,17 +25,10 @@ public:
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
-        // Tâm màn hình động (Tự thích nghi nếu anh đổi Density)
-        int centerX = width / 2;
-        int centerY = height / 2;
-
-        // Vùng quét (Giới hạn ở giữa để tiết kiệm CPU)
-        int sX = width / 4, eX = (width * 3) / 4;
-        int sY = height / 4, eY = (height * 3) / 4;
-
-        for (int y = sY; y < eY; y += 3) {
+        // [FULL-SCREEN FOV] Quét TOÀN BỘ MÀN HÌNH (Nhảy cóc 4 pixel để bù hiệu năng)
+        for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
-            for (int x = sX; x < eX; x += 3) {
+            for (int x = 0; x < width; x += 4) {
                 const uint8_t* p = rowPtr + (x * 4);
                 if (p[0] > 180 && p[1] < 90 && p[2] < 90) {
                     if (x < minX) minX = x; if (x > maxX) maxX = x;
@@ -47,24 +43,31 @@ public:
             int bh = maxY - minY;
             if (bh > bw * 0.5f) {
                 float headX = minX + (bw / 2.0f);
-                float headY = minY + (bh * 0.22f); // 22% từ đỉnh (Chuẩn Hitbox đầu Free Fire)
+                float headY = minY + (bh * 0.22f); 
                 
-                float rawDX = headX - centerX;
-                float rawDY = headY - centerY;
+                // Delta (Khoảng cách từ tâm màn hình đến đầu địch)
+                float dx = headX - (width / 2.0f);
+                float dy = headY - (height / 2.0f);
 
-                // Lọc Alpha-Beta: Nuốt chửng sự rung lắc của viền đỏ
-                smoothDX = (ALPHA * rawDX) + ((1.0f - ALPHA) * smoothDX);
-                smoothDY = (ALPHA * rawDY) + ((1.0f - ALPHA) * smoothDY);
-
-                state.dx = smoothDX;
-                state.dy = smoothDY;
+                // [PID CONTROLLER] Tính toán Lực Kéo & Lực Hãm
+                // P = Lực kéo thuận
+                float pX = dx * Kp;
+                float pY = dy * Kp;
+                
+                // D = Lực hãm (Dựa trên vận tốc lao vào đầu địch)
+                float dX = (dx - prevDX) * Kd;
+                float dY = (dy - prevDY) * Kd;
+                
+                // Tổng lực (Sẽ tự động giảm về 0 khi tiến sát đầu địch)
+                state.forceX = pX - dX; 
+                state.forceY = pY - dY;
+                
+                prevDX = dx;
+                prevDY = dy;
                 state.locked = true;
             }
         } else {
-            // Mất dấu: Trượt theo quán tính
-            state.dx = smoothDX;
-            state.dy = smoothDY;
-            state.locked = false; 
+            prevDX = 0; prevDY = 0; // Reset khi mất dấu
         }
 
         // Quét Máu (Infinity Sức)
@@ -92,11 +95,11 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    MicroStepCore core;
+    PIDCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jfloatArray result = env->NewFloatArray(4);
-    float data[4] = {state.dx, state.dy, state.locked ? 1.0f : 0.0f, state.needsHeal ? 1.0f : 0.0f};
+    float data[4] = {state.forceX, state.forceY, state.locked ? 1.0f : 0.0f, state.needsHeal ? 1.0f : 0.0f};
     env->SetFloatArrayRegion(result, 0, 4, data);
     
     return result;
