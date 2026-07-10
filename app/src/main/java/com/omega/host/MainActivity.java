@@ -11,6 +11,24 @@ import java.nio.ByteBuffer;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
 
+// Trong onCreate():
+if (!Settings.canDrawOverlays(this)) {
+    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+}
+
+MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+startActivityForResult(mgr.createScreenCaptureIntent(), 9999);
+
+// Override hàm onActivityResult:
+@Override
+protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    if (requestCode == 9999 && resultCode == RESULT_OK) {
+        Intent serviceIntent = new Intent(this, OpticalPhantomService.class);
+        startForegroundService(serviceIntent);
+        // Đợi service khởi tạo xong rồi gọi engageOpticalTrap (có thể dùng Handler.postDelayed 1000ms)
+    }
+}
+
 public class MainActivity extends Activity {
 
     private TextView tv;
