@@ -1,92 +1,77 @@
 package com.omega.host;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Color;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
+    private static final int OVERLAY_REQ = 1;
+    private static final int MEDIA_REQ = 2;
 
-    private TextView tv;
-    private static final int OVERLAY_PERMISSION_REQ_CODE = 1001;
-    private static final int MEDIA_PROJECTION_REQ_CODE = 1002;
-
-    // 1. ĐIỂM KỲ DỊ (ONCREATE) - NƠI HỆ THỐNG THỨC TỈNH
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setBackgroundColor(Color.BLACK);
+        layout.setPadding(50, 50, 50, 50);
+        layout.setGravity(Gravity.CENTER);
 
-        // Khởi tạo Giao diện Giả mạo (Decoy UI)
-        tv = new TextView(this);
-        tv.setBackgroundColor(Color.BLACK);
+        TextView tv = new TextView(this);
+        tv.setText("OMEGA ETERNITY SYSTEM\nStatus: Initializing...");
         tv.setTextColor(Color.GREEN);
-        tv.setTextSize(14f);
-        tv.setPadding(50, 50, 50, 50);
-        tv.setGravity(Gravity.START);
-        setContentView(tv);
+        tv.setTextSize(18f);
+        tv.setGravity(Gravity.CENTER);
+        layout.addView(tv);
 
-        appendLog("[SYSTEM] Omega Host Boot Sequence Initiated...");
-        appendLog("[STATUS] Checking Kernel Permissions...");
+        Button btnAcc = new Button(this);
+        btnAcc.setText("1. ENABLE ACCESSIBILITY (Macro)");
+        btnAcc.setOnClickListener(v -> {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            startActivity(intent);
+        });
+        layout.addView(btnAcc);
 
-        // 2. XIN QUYỀN VẼ LỚP PHỦ (OVERLAY / SYSTEM_ALERT_WINDOW)
-        if (!Settings.canDrawOverlays(this)) {
-            appendLog("[ACTION] Requesting Overlay Permission...");
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivityForResult(intent, OVERLAY_PERMISSION_REQ_CODE);
-        } else {
-            requestScreenCapture();
-        }
+        Button btnStart = new Button(this);
+        btnStart.setText("2. START OPTICAL LOCK");
+        btnStart.setOnClickListener(v -> {
+            if (!Settings.canDrawOverlays(this)) {
+                startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), OVERLAY_REQ);
+            } else {
+                startCapture();
+            }
+        });
+        layout.addView(btnStart);
+
+        setContentView(layout);
     }
 
-    // 3. KÍCH HOẠT BẪY QUANG HỌC (MEDIA PROJECTION)
-    private void requestScreenCapture() {
-        appendLog("[ACTION] Requesting Optical Capture (MediaProjection)...");
+    private void startCapture() {
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_PROJECTION_REQ_CODE);
+        startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_REQ);
     }
 
-    // 4. CỔNG ĐÓN NHẬN PHẢN HỒI TỪ HỆ ĐIỀU HÀNH
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
-        if (requestCode == OVERLAY_PERMISSION_REQ_CODE) {
-            if (Settings.canDrawOverlays(this)) {
-                appendLog("[SUCCESS] Overlay Permission Granted.");
-                requestScreenCapture();
-            } else {
-                appendLog("[CRITICAL] Overlay Permission Denied. System Halted.");
-            }
-        } else if (requestCode == MEDIA_PROJECTION_REQ_CODE) {
-            if (resultCode == RESULT_OK && data != null) {
-                appendLog("[SUCCESS] Optical Trap Authorized.");
-                appendLog("[SYNC] Handing over to OpticalPhantomService...");
-                
-                // Chuyển giao quyền kiểm soát cho Service ngầm (Tránh lỗi Parcelable Intent)
-                OpticalPhantomService.mResultCode = resultCode;
-                OpticalPhantomService.mResultIntent = data;
-                
-                // Khởi động Service Bóng Ma
-                Intent serviceIntent = new Intent(this, OpticalPhantomService.class);
-                startForegroundService(serviceIntent);
-                
-                appendLog("[STATUS] OMEGA HOST: ONLINE. RETINA SYNCING...");
-            } else {
-                appendLog("[CRITICAL] Screen Capture Denied. System Halted.");
-            }
-        }
-    }
-
-    // Hàm phụ trợ đẩy log lên màn hình
-    private void appendLog(String msg) {
-        if (tv != null) {
-            tv.append(msg + "\n");
+        if (requestCode == OVERLAY_REQ && Settings.canDrawOverlays(this)) {
+            startCapture();
+        } else if (requestCode == MEDIA_REQ && resultCode == RESULT_OK) {
+            OpticalPhantomService.mResultCode = resultCode;
+            OpticalPhantomService.mResultIntent = data;
+            startForegroundService(new Intent(this, OpticalPhantomService.class));
+            finish(); // Ẩn app đểfullscreen game
         }
     }
 }
