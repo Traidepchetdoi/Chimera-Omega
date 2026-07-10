@@ -18,19 +18,26 @@ public class OmegaMacroService extends AccessibilityService {
     private final float ORIGIN_X = 1000; 
     private final float ORIGIN_Y = 400;
     
-    // [OMEGA MAGNETIC LOCK] BỘ TÍCH PHÂN KHÓA TÂM TỪ TÍNH
-    private float accX = 0;
-    private float accY = 0;
-    private final float SUB_PIXEL_THRESHOLD = 0.4f; 
-    private final long STROKE_DURATION = 1; // 1ms cho 1000Hz
+    // [OMEGA TOUCH-DAC] BỘ TÍCH PHÂN 64-BIT & ĐIỀU CHẾ XUNG
+    private double accX = 0; // 64-bit Double: Lưu trữ hàng triệu lần nhích 0.0001px không sai số
+    private double accY = 0;
+    
+    private final double MICRO_STEP = 0.0001;       // Độ phân giải toán học cực hạn
+    private final double PHYSICAL_THRESHOLD = 0.15; // Ngưỡng vật lý tối thiểu Unity chấp nhận
+    private final long STROKE_DURATION = 1;         // 1ms
     
     private long lastSwipeTimeNano = 0;
+    
+    // Mảng tái sử dụng để truyền Double qua Message (ZERO-GC 64-BIT BRIDGE)
+    private final double[] reusablePayload = new double[2];
 
     private final Handler.Callback gestureCallback = new Handler.Callback() {
         @Override
         public boolean handleMessage(Message msg) {
-            float swipeX = msg.arg1 / 10000.0f;
-            float swipeY = msg.arg2 / 10000.0f;
+            // Giải mã Double từ mảng tái sử dụng
+            double[] payload = (double[]) msg.obj;
+            float swipeX = (float) payload[0];
+            float swipeY = (float) payload[1];
             
             reusablePath.rewind();
             reusablePath.moveTo(ORIGIN_X, ORIGIN_Y);
@@ -47,51 +54,49 @@ public class OmegaMacroService extends AccessibilityService {
     @Override
     public void onServiceConnected() {
         instance = this;
-        HandlerThread thread = new HandlerThread("OmegaMagneticLock");
+        HandlerThread thread = new HandlerThread("OmegaTouchDAC");
         thread.start();
-        // Ép luồng lên mức ưu tiên cao nhất của Nhân Linux
         Process.setThreadPriority(thread.getThreadId(), Process.THREAD_PRIORITY_URGENT_AUDIO);
         gestureHandler = new Handler(thread.getLooper(), gestureCallback);
     }
 
-    public void injectMicroSwipe(float forceX, float forceY, boolean locked) {
+    public void injectMicroSwipe(double forceX, double forceY, boolean locked) {
         if (instance == null || gestureHandler == null) return;
 
-        // 1. TÍCH LŨY LỰC KÉO TỪ TÍNH (PID FORCE)
-        // Không quan tâm súng gì, không quan tâm đạn bay thế nào.
-        // Chỉ quan tâm: Tâm đang cách đầu bao xa -> Kéo về đúng bằng đó.
-        accX += forceX * 0.025f; 
-        accY += forceY * 0.025f;
+        // 1. TÍCH LŨY TOÁN HỌC 64-BIT (0.0001px RESOLUTION)
+        accX += forceX * MICRO_STEP; 
+        accY += forceY * MICRO_STEP;
 
         if (!locked) {
             accX = 0; accY = 0;
             return;
         }
 
-        // 2. KIỂM TRA NGƯỠNG VẬT LÝ (SUB-PIXEL)
-        if (Math.abs(accX) < SUB_PIXEL_THRESHOLD && Math.abs(accY) < SUB_PIXEL_THRESHOLD) {
-            return; 
+        // 2. KIỂM TRA NGƯỠNG VẬT LÝ (UNITY FLOOR)
+        if (Math.abs(accX) < PHYSICAL_THRESHOLD && Math.abs(accY) < PHYSICAL_THRESHOLD) {
+            return; // Chưa đủ 0.15px, tiếp tục tích lũy trong bóng tối
         }
 
-        // 3. RATE-LIMITER 1000HZ (NANO TIME)
+        // 3. RATE-LIMITER 1000HZ
         long nowNano = System.nanoTime();
         if (nowNano - lastSwipeTimeNano < 1_000_000L) return; 
         lastSwipeTimeNano = nowNano;
 
-        // 4. TRÍCH XUẤT GÓI NHÍCH & XẢ BỘ NHỚ ĐỆM
-        float swipeX = Math.signum(accX) * SUB_PIXEL_THRESHOLD;
-        float swipeY = Math.signum(accY) * SUB_PIXEL_THRESHOLD;
+        // 4. XẢ XUNG PWM (PULSE WIDTH MODULATION)
+        // Rút gọn về đúng 0.15px (hoặc -0.15px) để lừa Unity Engine
+        double swipeX = Math.signum(accX) * PHYSICAL_THRESHOLD;
+        double swipeY = Math.signum(accY) * PHYSICAL_THRESHOLD;
         
+        // Trừ lại phần đã xả (Giữ nguyên phần dư 0.0001px cho frame sau)
         accX -= swipeX; 
         accY -= swipeY;
 
-        // 5. ÉP KIỂU INT (ZERO-GC) & BƠM XUNG
-        int intX = (int) (swipeX * 10000);
-        int intY = (int) (swipeY * 10000);
+        // 5. TRUYỀN TẢI ZERO-GC 64-BIT
+        reusablePayload[0] = swipeX;
+        reusablePayload[1] = swipeY;
 
         Message msg = gestureHandler.obtainMessage();
-        msg.arg1 = intX;
-        msg.arg2 = intY;
+        msg.obj = reusablePayload; // Gắn mảng double vào Message (Không tạo object mới)
         msg.sendToTarget();
     }
 
