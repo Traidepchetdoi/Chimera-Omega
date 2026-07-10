@@ -13,6 +13,9 @@ import android.widget.ImageView;
 import androidx.core.app.NotificationCompat;
 
 public class OpticalPhantomService extends Service {
+    // CỔNG NHẬN DỮ LIỆU TỪ MAINACTIVITY
+    public static int mResultCode = -1;
+    public static Intent mResultIntent = null;
     private WindowManager windowManager;
     private ImageView ghostReticle; // Tâm súng bóng ma
     private ImageReader imageReader;
