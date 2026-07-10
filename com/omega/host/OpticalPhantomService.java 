@@ -1,0 +1,107 @@
+package com.omega.host;
+
+import android.app.*;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.PixelFormat;
+import android.hardware.HardwareBuffer;
+import android.media.Image;
+import android.media.ImageReader;
+import android.os.*;
+import android.view.*;
+import android.widget.ImageView;
+import androidx.core.app.NotificationCompat;
+
+public class OpticalPhantomService extends Service {
+    private WindowManager windowManager;
+    private ImageView ghostReticle; // Tâm súng bóng ma
+    private ImageReader imageReader;
+    private VirtualDisplay virtualDisplay;
+    
+    // Nạp lõi C++
+    static { System.loadLibrary("omega_core"); }
+    public native float[] processOpticalFrame(HardwareBuffer buffer, int w, int h);
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        startForeground(1, createNotification());
+        setupOverlay();
+    }
+
+    private void setupOverlay() {
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        
+        // Tạo tâm súng bóng ma (Hình tròn nhỏ màu xanh lá)
+        ghostReticle = new ImageView(this);
+        ghostReticle.setBackgroundColor(0x00000000); // Trong suốt
+        // (Anh có thể set một Drawable hình crosshair vào đây)
+        
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                150, 150, // Kích thước tâm súng
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | 
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+                
+        // Bypass Gravity: Dùng tọa độ tuyệt đối
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.x = 0; params.y = 0;
+        
+        windowManager.addView(ghostReticle, params);
+    }
+
+    // Hàm này được MainActivity gọi sau khi người dùng bấm "Cho phép quay màn hình"
+    public void engageOpticalTrap(int resultCode, Intent data) {
+        MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+        MediaProjection projection = mgr.getMediaProjection(resultCode, data);
+
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int w = metrics.widthPixels;
+        int h = metrics.heightPixels;
+
+        // Bẫy khung hình: Đổ thẳng ánh sáng từ GPU vào ImageReader
+        imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
+        virtualDisplay = projection.createVirtualDisplay("OMEGA_RETINA", w, h, metrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader.getSurface(), null, null);
+
+        // Vòng lặp quét quang học
+        imageReader.setOnImageAvailableListener(reader -> {
+            Image image = reader.acquireLatestImage(); // Chỉ lấy frame mới nhất, bỏ frame cũ chống lag
+            if (image != null) {
+                HardwareBuffer hwBuffer = image.getHardwareBuffer();
+                
+                // NÉM XUỐNG C++ ĐỂ MỔ XẺ
+                float[] result = processOpticalFrame(hwBuffer, w, h);
+                hwBuffer.close();
+                image.close();
+
+                if (result[2] == 1.0f) { // Đã khóa mục tiêu
+                    float targetX = result[0];
+                    float targetY = result[1];
+                    
+                    // DỊCH CHUYỂN TÂM SÚNG BÓNG MA
+                    Handler handler = new Handler(Looper.getMainLooper());
+                    handler.post(() -> {
+                        WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
+                        p.x = (int)targetX - 75; // Trừ đi một nửa kích thước tâm súng để căn giữa
+                        p.y = (int)targetY - 75;
+                        windowManager.updateViewLayout(ghostReticle, p);
+                    });
+                }
+            }
+        }, null);
+    }
+
+    private Notification createNotification() {
+        return new NotificationCompat.Builder(this, "OMEGA_VISION")
+                .setContentTitle("Omega System")
+                .setContentText("Đang đồng bộ quang học...")
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .build();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+}
