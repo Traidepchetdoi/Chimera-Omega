@@ -13,28 +13,25 @@ public class OmegaMacroService extends AccessibilityService {
     public static OmegaMacroService instance;
     
     private Handler gestureHandler;
-    private final Path reusablePath = new Path(); // Tái sử dụng Path (Zero-GC)
+    private final Path reusablePath = new Path(); 
     
     private final float ORIGIN_X = 1000; 
     private final float ORIGIN_Y = 400;
     
-    // [OMEGA 1000HZ] BỘ TÍCH PHÂN & NGƯỠNG VẬT LÝ
+    // [OMEGA MAGNETIC LOCK] BỘ TÍCH PHÂN KHÓA TÂM TỪ TÍNH
     private float accX = 0;
     private float accY = 0;
     private final float SUB_PIXEL_THRESHOLD = 0.4f; 
-    private final long STROKE_DURATION = 1; // 1ms: Xung nhịp khớp với 1000Hz Digitizer
+    private final long STROKE_DURATION = 1; // 1ms cho 1000Hz
     
     private long lastSwipeTimeNano = 0;
 
-    // Callback xử lý Message (Zero-GC: Không tạo Lambda, không tạo Object mới)
     private final Handler.Callback gestureCallback = new Handler.Callback() {
         @Override
         public boolean handleMessage(Message msg) {
-            // Giải mã Float từ Int (Nhân 10000 ở dưới, chia 10000 ở đây)
             float swipeX = msg.arg1 / 10000.0f;
             float swipeY = msg.arg2 / 10000.0f;
             
-            // Tái sử dụng Path cũ, không gọi new Path()
             reusablePath.rewind();
             reusablePath.moveTo(ORIGIN_X, ORIGIN_Y);
             reusablePath.lineTo(ORIGIN_X + swipeX, ORIGIN_Y + swipeY);
@@ -42,11 +39,7 @@ public class OmegaMacroService extends AccessibilityService {
             GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(reusablePath, 0, STROKE_DURATION);
             GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
             
-            try {
-                dispatchGesture(gesture, null, null);
-            } catch (Exception e) {
-                // Bẫy lỗi: Nuốt ngoại lệ nếu InputDispatcher bị quá tải 1000Hz
-            }
+            try { dispatchGesture(gesture, null, null); } catch (Exception e) {}
             return true;
         }
     };
@@ -54,37 +47,35 @@ public class OmegaMacroService extends AccessibilityService {
     @Override
     public void onServiceConnected() {
         instance = this;
-        HandlerThread thread = new HandlerThread("Omega1000Hz");
+        HandlerThread thread = new HandlerThread("OmegaMagneticLock");
         thread.start();
-        
-        // [KERNEL OVERRIDE] Ép luồng lên mức ưu tiên cao nhất của hệ thống
+        // Ép luồng lên mức ưu tiên cao nhất của Nhân Linux
         Process.setThreadPriority(thread.getThreadId(), Process.THREAD_PRIORITY_URGENT_AUDIO);
-        
         gestureHandler = new Handler(thread.getLooper(), gestureCallback);
     }
 
     public void injectMicroSwipe(float forceX, float forceY, boolean locked) {
         if (instance == null || gestureHandler == null) return;
 
-        // 1. TÍCH LŨY SAI SỐ 0.001PX (SUB-PIXEL ACCUMULATION)
-        accX += forceX * 0.015f; 
-        accY += forceY * 0.015f;
+        // 1. TÍCH LŨY LỰC KÉO TỪ TÍNH (PID FORCE)
+        // Không quan tâm súng gì, không quan tâm đạn bay thế nào.
+        // Chỉ quan tâm: Tâm đang cách đầu bao xa -> Kéo về đúng bằng đó.
+        accX += forceX * 0.025f; 
+        accY += forceY * 0.025f;
 
         if (!locked) {
             accX = 0; accY = 0;
             return;
         }
 
-        // 2. KIỂM TRA NGƯỠNG VẬT LÝ (UNITY TOUCHSLOP)
+        // 2. KIỂM TRA NGƯỠNG VẬT LÝ (SUB-PIXEL)
         if (Math.abs(accX) < SUB_PIXEL_THRESHOLD && Math.abs(accY) < SUB_PIXEL_THRESHOLD) {
             return; 
         }
 
-        // 3. RATE-LIMITER 1000HZ (DÙNG NANO TIME ĐỂ CHÍNH XÁC TUYỆT ĐỐI)
+        // 3. RATE-LIMITER 1000HZ (NANO TIME)
         long nowNano = System.nanoTime();
-        if (nowNano - lastSwipeTimeNano < 1_000_000L) { // 1.000.000 ns = 1 ms
-            return; 
-        }
+        if (nowNano - lastSwipeTimeNano < 1_000_000L) return; 
         lastSwipeTimeNano = nowNano;
 
         // 4. TRÍCH XUẤT GÓI NHÍCH & XẢ BỘ NHỚ ĐỆM
@@ -94,20 +85,18 @@ public class OmegaMacroService extends AccessibilityService {
         accX -= swipeX; 
         accY -= swipeY;
 
-        // 5. ÉP KIỂU FLOAT SANG INT ĐỂ TRUYỀN QUA MESSAGE (ZERO-GC)
+        // 5. ÉP KIỂU INT (ZERO-GC) & BƠM XUNG
         int intX = (int) (swipeX * 10000);
         int intY = (int) (swipeY * 10000);
 
-        // Lấy Message từ Pool của Android (Không tốn RAM)
         Message msg = gestureHandler.obtainMessage();
         msg.arg1 = intX;
         msg.arg2 = intY;
-        msg.sendToTarget(); // Bắn vào luồng 1000Hz
+        msg.sendToTarget();
     }
 
     public void injectTap(int x, int y) {
         if (instance == null || gestureHandler == null) return;
-        // Tap vẫn dùng cách cũ vì tần suất thấp
         Path path = new Path();
         path.moveTo(x, y);
         GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 10);
