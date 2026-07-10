@@ -2,8 +2,9 @@
 #include <android/log.h>
 #include <cstdint>
 #include <cmath>
+#include <time.h> // Phần cứng Đồng hồ Nhân Linux
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_4D", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_2D", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -11,17 +12,26 @@ struct TargetState {
     bool needsHeal;
 };
 
-class KinematicTracker {
+class ScreenSpaceSingularity {
 private:
-    double prevCX = 0, prevCY = 0; // Tọa độ tâm cụm ở frame trước
-    double velX = 0, velY = 0;     // Vận tốc di chuyển của đầu địch (pixel/frame)
+    double prevCX = 0, prevCY = 0; 
+    double prevTime = 0;
+    double velX = 0, velY = 0; 
     
-    // [OMEGA 4D] HỆ SỐ VẬT LÝ
-    const double LEAD_FACTOR = 3.5;    // Hệ số đón đầu (Bù trừ Ping + Tốc độ đạn bay)
-    const double SMOOTHING = 0.6;      // Làm mượt vận tốc (Trống nhiễu do pixel nhảy)
-    
+    // [OMEGA 2D IRON CHAIN] THÔNG SỐ KHÓA TÂM MÀN HÌNH TUYỆT ĐỐI
+    const double Kp = 2.5;             // Hệ số nhân khoảng cách
+    const double Kd = 0.15;            // Hệ số ma sát hãm phanh (Chống trượt qua đầu)
+    const double MIN_TENSION = 120.0;  // Lực căng tối thiểu (Khóa chết ở cự ly gần)
+    const double MAX_TENSION = 400.0;  // Trần lực kéo
+
     double clamp(double v, double lo, double hi) {
         return (v < lo) ? lo : (v > hi) ? hi : v;
+    }
+
+    double getHardwareTime() {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return ts.tv_sec + ts.tv_nsec / 1e9;
     }
 
 public:
@@ -32,6 +42,7 @@ public:
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
+        // Quét toàn bộ màn hình (Full-Screen 2D Plane)
         for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
             for (int x = 0; x < width; x += 4) {
@@ -50,65 +61,59 @@ public:
             int bh = maxY - minY;
             double currentCX, currentCY;
 
-            if (pixelCount < 40) { // Tầm xa (Sniper)
+            if (pixelCount < 40) { 
                 currentCX = sumX / pixelCount;
                 currentCY = sumY / pixelCount;
-            } else { // Tầm gần (Cận chiến)
+            } else { 
                 currentCX = minX + (bw / 2.0);
-                currentCY = minY + (bh * 0.32); // Trên lông mày
+                currentCY = minY + (bh * 0.32); // Khóa trên lông mày
             }
             
-            // 1. TÍNH VẬN TỐC TƯƠNG ĐỐI (RELATIVE VELOCITY)
-            if (prevCX != 0 && prevCY != 0) {
-                double rawVX = currentCX - prevCX;
-                double rawVY = currentCY - prevCY;
-                // Làm mượt vận tốc để tránh nhiễu do kẻ địch đổi hướng đột ngột
-                velX = (velX * (1.0 - SMOOTHING)) + (rawVX * SMOOTHING);
-                velY = (velY * (1.0 - SMOOTHING)) + (rawVY * SMOOTHING);
+            // 1. ĐỒNG BỘ HÓA PHẦN CỨNG (HARDWARE TIME SYNC)
+            double currentTime = getHardwareTime();
+            double dt = currentTime - prevTime;
+            if (dt < 0.001) dt = 0.001; // Chống chia cho 0
+
+            // 2. TÍNH VẬN TỐC THỰC CỦA ĐIỂM ẢNH TRÊN MÀN HÌNH 2D
+            if (prevTime > 0) {
+                double rawVX = (currentCX - prevCX) / dt;
+                double rawVY = (currentCY - prevCY) / dt;
+                // Làm mượt vận tốc để tránh nhiễu lượng tử pixel
+                velX = (velX * 0.7) + (rawVX * 0.3);
+                velY = (velY * 0.7) + (rawVY * 0.3);
             }
-            prevCX = currentCX; prevCY = currentCY;
+            prevCX = currentCX; prevCY = currentCY; prevTime = currentTime;
 
-            // 2. TỌA ĐỘ TƯƠNG LAI (LEAD ANGLE - ĐÓN ĐẦU QUỸ ĐẠO)
-            // Tâm súng sẽ nhắm vào nơi cái đầu SẼ ĐẾN, không phải nơi nó ĐANG Ở
-            double futureX = currentCX + (velX * LEAD_FACTOR);
-            double futureY = currentCY + (velY * LEAD_FACTOR);
+            // 3. TÍNH DELTA 2D TUYỆT ĐỐI (KHÔNG ĐÓN ĐẦU, KHÔNG TƯƠNG LAI)
+            // Tâm màn hình luôn là (width/2, height/2)
+            double dx = currentCX - (width / 2.0);
+            double dy = currentCY - (height / 2.0);
+
+            // 4. SỢI XÍCH SẮT 2D (IRON CHAIN TENSION)
+            double rawX = dx * Kp;
+            double rawY = dy * Kp;
+
+            // Ép buộc lực căng tối thiểu (Dù địch đứng yên hay nhích 1px, tâm vẫn bị hút chặt)
+            if (rawX > 0) rawX = fmax(rawX, MIN_TENSION);
+            else if (rawX < 0) rawX = fmin(rawX, -MIN_TENSION);
             
-            double dx = futureX - (width / 2.0);
-            double dy = futureY - (height / 2.0);
+            if (rawY > 0) rawY = fmax(rawY, MIN_TENSION);
+            else if (rawY < 0) rawY = fmin(rawY, -MIN_TENSION);
 
-            // 3. ĐÀN HỒI THEO KHỐI LƯỢNG (MASS-ADAPTIVE ELASTICITY)
-            double pixelMass = bw * bh; // Diện tích pixel của địch
+            // 5. LỰC HÃM MA SÁT (VELOCITY DAMPING - CHỐNG TRƯỢT QUA ĐẦU)
+            // Khi địch di chuyển, tâm súng bám theo. Khi địch dừng, vận tốc > 0 sẽ tạo lực hãm kéo tâm súng phanh lại ngay trên đầu.
+            double dampX = velX * Kd;
+            double dampY = velY * Kd;
             
-            // Xa (Mass nhỏ): Lực kéo nhớt, bám mượt, chống giật cục.
-            // Gần (Mass lớn): Lực kéo thép, khóa cứng, ghim tâm.
-            double dynamicTension = (pixelMass < 100.0) ? 60.0 : 180.0; 
-            double maxTension = (pixelMass < 100.0) ? 150.0 : 400.0;
-
-            double rawX = dx * 2.0;
-            double rawY = dy * 2.0;
-
-            // Ép buộc lực căng tối thiểu (Để tâm không bị trôi khi địch đứng yên)
-            if (rawX > 0) rawX = fmax(rawX, dynamicTension);
-            else if (rawX < 0) rawX = fmin(rawX, -dynamicTension);
-            
-            if (rawY > 0) rawY = fmax(rawY, dynamicTension);
-            else if (rawY < 0) rawY = fmin(rawY, -dynamicTension);
-
-            // Lực hãm (Chỉ phanh khi tâm đang lao quá nhanh)
-            double dX = velX * 1.5; 
-            double dY = velY * 1.5;
-            
-            state.forceX = clamp(rawX - dX, -maxTension, maxTension);
-            state.forceY = clamp(rawY - dY, -maxTension, maxTension);
+            state.forceX = clamp(rawX - dampX, -MAX_TENSION, MAX_TENSION);
+            state.forceY = clamp(rawY - dampY, -MAX_TENSION, MAX_TENSION);
             
             state.locked = true;
         } else {
-            // Mất dấu: Giữ nguyên quán tính (Extrapolation)
-            prevCX += velX; prevCY += velY;
-            velX *= 0.9; velY *= 0.9; // Ma sát
+            prevTime = 0; // Reset khi mất dấu
         }
 
-        // Quét Máu
+        // Quét Máu (Infinity Sức)
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
@@ -133,7 +138,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    KinematicTracker core;
+    ScreenSpaceSingularity core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
