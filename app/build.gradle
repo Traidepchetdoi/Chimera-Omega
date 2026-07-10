@@ -1,5 +1,3 @@
-apply plugin: 'com.android.application'
-
 android {
     namespace 'com.omega.host'
     compileSdk 34
@@ -9,34 +7,32 @@ android {
         minSdk 24
         targetSdk 34
         versionCode 1
-        versionName "Omega-Immortal"
+        versionName "Omega-Stealth-1.0"
+        
+        // BẮT BUỘC: Chỉ định rõ ABI cho điện thoại ARM64, tránh build ra rác x86 làm nặng APK
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     buildTypes {
-        release { minifyEnabled false }
-        debug { debuggable true }
+        release {
+            // TỐI QUAN TRỌNG: Tắt R8 Minification cho bản build GitHub để tránh xóa mất hàm Callback
+            // Nếu muốn tàng hình tuyệt đối (obfuscate), phải viết file proguard-rules.pro, 
+            // nhưng với người mới build trên điện thoại, TẮT NÓ ĐI để đảm bảo 0% Crash.
+            minifyEnabled false 
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+        }
     }
-    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
-
-// 🛡️ BỌC THÉP KOTLIN: ÉP BUỘC JDK7/JDK8 LÊN 1.8.22 ĐỂ TRIỆT TIÊU duplicate class
-configurations.all {
-    resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
+    kotlinOptions {
+        jvmTarget = '17'
     }
-}
-
-dependencies {
-    implementation 'com.google.mlkit:face-detection:16.1.6'
-    implementation 'androidx.core:core:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.lifecycle:lifecycle-runtime:2.6.2'
-    
-    // Giải pháp tránh Duplicate Class Guava
-    implementation 'com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava'
 }
