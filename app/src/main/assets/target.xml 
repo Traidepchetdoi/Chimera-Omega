@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+    <config host="192.168.1.1" port="8080" />
+    <user name="admin" />
+    <password>SuperSecretRoot123</password>
+    <token>ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</token>
+    <api_key>sk-omega-master-key-99283</api_key>
+    <log level="info">dummy data here</log>
+</system>
