@@ -127,33 +127,7 @@ public class OpticalPhantomService extends Service {
                 image.close();
             }
         }, null);
-                
-                // NÉM XUỐNG C++ ĐỂ TÍNH TOÁN TỌA ĐỘ ĐẦU ĐỊCH
-                float[] result = processOpticalFrame(hwBuffer, screenWidth, screenHeight);
-                hwBuffer.close();
-                image.close();
-
-                if (result != null && result.length >= 3 && result[2] == 1.0f) { // Đã khóa mục tiêu
-                    float targetX = result[0];
-                    float targetY = result[1];
-                    
-                    // DỊCH CHUYỂN TÂM SÚNG BÓNG MA LÊN MÀN HÌNH
-                    Handler handler = new Handler(Looper.getMainLooper());
-                    handler.post(() -> {
-                        if (ghostReticle != null && ghostReticle.isAttachedToWindow()) {
-                            WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
-                            p.x = (int)targetX - 75; // Căn giữa tâm súng
-                            p.y = (int)targetY - 75;
-                            try {
-                                windowManager.updateViewLayout(ghostReticle, p);
-                            } catch (Exception e) { /* Bỏ qua lỗi layout */ }
-                        }
-                    });
-                }
-            }
-        }, null);
-    }
-
+                            
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "Omega Retina", NotificationManager.IMPORTANCE_LOW);
         NotificationManager nm = getSystemService(NotificationManager.class);
