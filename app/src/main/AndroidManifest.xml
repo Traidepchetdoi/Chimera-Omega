@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- [TẦNG 2] YÊU CẦU QUYỀN TỪ KERNEL & OS -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-<service
-    android:name=".OpticalPhantomService"
-    android:foregroundServiceType="mediaProjection"
-    android:exported="false" />
-
+    <!-- [TẦNG 3] VÙNG CÁCH LY ỨNG DỤNG (APPLICATION SANDBOX) -->
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Omega System"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        tools:targetApi="31">
+
+        <!-- [TẦNG 4A] GIAO DIỆN KÍCH HOẠT (MAIN ACTIVITY) -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -22,5 +26,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- [TẦNG 4B] SERVICE BÓNG MA QUANG HỌC (OPTICAL PHANTOM SERVICE) -->
+        <!-- BẮT BUỘC: Phải nằm TRONG thẻ <application> -->
+        <service
+            android:name=".OpticalPhantomService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
     </application>
+
 </manifest>
