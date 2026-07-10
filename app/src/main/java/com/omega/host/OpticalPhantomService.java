@@ -23,7 +23,6 @@ import androidx.core.app.NotificationCompat;
 import java.nio.ByteBuffer;
 
 public class OpticalPhantomService extends Service {
-    
     public static int mResultCode = -1;
     public static Intent mResultIntent = null;
 
@@ -32,12 +31,9 @@ public class OpticalPhantomService extends Service {
     private ImageReader imageReader;
     private VirtualDisplay virtualDisplay;
     private MediaProjection mediaProjection;
-    
-    private int screenWidth;
-    private int screenHeight;
+    private int screenWidth, screenHeight;
 
     static { System.loadLibrary("omega_core"); }
-    
     public native float[] processOpticalFrame(ByteBuffer buffer, int w, int h, int rowStride);
 
     @Override
@@ -58,9 +54,8 @@ public class OpticalPhantomService extends Service {
 
     private void setupOverlay() {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        
         ghostReticle = new ImageView(this);
-        ghostReticle.setImageResource(android.R.drawable.ic_menu_crop);
+        ghostReticle.setImageResource(android.R.drawable.ic_menu_crop); // Tâm súng giả
         ghostReticle.setAlpha(0.8f);
         
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
@@ -70,11 +65,7 @@ public class OpticalPhantomService extends Service {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | 
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-                
         params.gravity = Gravity.TOP | Gravity.START;
-        params.x = 0; 
-        params.y = 0;
-        
         windowManager.addView(ghostReticle, params);
     }
 
@@ -100,54 +91,53 @@ public class OpticalPhantomService extends Service {
                     
                     float[] result = processOpticalFrame(buffer, screenWidth, screenHeight, rowStride);
                     
-                    if (result != null && result.length >= 3 && result[2] == 1.0f) {
-                        float targetX = result[0];
-                        float targetY = result[1];
-                        
-                        Handler handler = new Handler(Looper.getMainLooper());
-                        handler.post(() -> {
-                            if (ghostReticle != null && ghostReticle.isAttachedToWindow()) {
-                                WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
-                                p.x = (int)targetX - 75;
-                                p.y = (int)targetY - 75;
-                                try {
-                                    windowManager.updateViewLayout(ghostReticle, p);
-                                } catch (Exception e) { 
-                                    // Bẫy lỗi: Nuốt ngoại lệ để tránh crash Service ngầm
+                    if (result != null && result.length >= 4) {
+                        // 1. AIM LOCK
+                        if (result[2] == 1.0f) {
+                            final float tx = result[0];
+                            final float ty = result[1];
+                            new Handler(Looper.getMainLooper()).post(() -> {
+                                if (ghostReticle != null && ghostReticle.isAttachedToWindow()) {
+                                    WindowManager.LayoutParams p = (WindowManager.LayoutParams) ghostReticle.getLayoutParams();
+                                    p.x = (int)tx - 75;
+                                    p.y = (int)ty - 75;
+                                    try { windowManager.updateViewLayout(ghostReticle, p); } catch (Exception e) {}
                                 }
-                            }
-                        });
+                            });
+                        }
+                        
+                        // 2. INFINITY HEALTH (AUTO MEDKIT)
+                        if (result[3] == 1.0f && OmegaMacroService.instance != null) {
+                            // Tọa độ nút Medkit (Góc phải dưới - Tùy chỉnh theo game)
+                            int medkitX = screenWidth - 200; 
+                            int medkitY = screenHeight - 300;
+                            OmegaMacroService.instance.injectTap(medkitX, medkitY);
+                        }
                     }
                 }
                 image.close();
             }
         }, null);
-    } // <-- Dấu ngoặc này KHÓA CHẶT hàm engageOpticalTrap, giải phóng không gian cho các hàm tiếp theo
+    }
 
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "Omega Retina", NotificationManager.IMPORTANCE_LOW);
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        if (nm != null) nm.createNotificationChannel(channel);
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
 
     private Notification createNotification() {
         return new NotificationCompat.Builder(this, "OMEGA_VISION")
                 .setContentTitle("Omega System")
-                .setContentText("Đang đồng bộ quang học...")
+                .setContentText("Eternity Protocol Active")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .build();
     }
 
-    @Override
-    public IBinder onBind(Intent intent) { 
-        return null; 
-    }
-    
-    @Override
-    public void onDestroy() {
+    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override public void onDestroy() {
         if (virtualDisplay != null) virtualDisplay.release();
         if (mediaProjection != null) mediaProjection.stop();
-        if (ghostReticle != null && ghostReticle.isAttachedToWindow()) windowManager.removeView(ghostReticle);
+        if (ghostReticle != null) windowManager.removeView(ghostReticle);
         super.onDestroy();
     }
-} // <-- Dấu ngoặc này KHÓA CHẶT Class OpticalPhantomService
+}
