@@ -6,71 +6,67 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
-    <!-- 🎙️ MEDIA PROJECTION & FOREGROUND (BẮT BUỘC TỪ API 29+) -->
+    <!-- 🎙️ FOREGROUND SERVICE (BẮT BUỘC TỪ API 28+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     
-    <!-- 🔔 THÔNG BÁO (Android 13+ BẮT BUỘC cho Foreground Service) -->
+    <!-- 🔔 THÔNG BÁO (BẮT BUỘC TỪ API 33+ CHO FOREGROUND SERVICE) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-    <!-- 🔋 PIN & WAKELOCK (Chống Doze Mode giết app) -->
+    <!-- 🔋 CHỐNG DOZE MODE & GIỮ CPU THỨC -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     
-    <!-- 🎯 ACCESSIBILITY & OVERLAY (Cho OEM khó tính) -->
+    <!-- 🎯 OVERLAY (CHO CÁC MÁY XIAOMI/OPPO KHÓ TÍNH) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        tools:ignore="ProtectedPermissions" />
     
     <!-- 🔄 TỰ HỒI SINH SAU REBOOT -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    
-    <!-- 💾 BỘ NHỚ (Legacy cho Android < 10) -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
 
     <application
         android:label="Omega Host"
         android:icon="@android:drawable/ic_menu_compass"
         android:roundIcon="@android:drawable/ic_menu_compass"
         android:requestLegacyExternalStorage="true"
+        
+        <!-- 🧠 BỘ GIÁP TITAN (5 THUỘC TÍNH SINH TỒN) -->
         android:largeHeap="true"
-        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:directBootAware="true"
+        android:resizeableActivity="false"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true">
+        
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="31">
 
-        <!-- 🚀 ACTIVITY CHÍNH -->
+        <!-- 🚀 ACTIVITY CHÍNH (KHÓA CỨNG VÒNG LẶP) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait"
+            android:resizeableActivity="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- 🎯 FOREGROUND SERVICE (MediaProjection Type) -->
+        <!-- 🎯 FOREGROUND SERVICE (CHẠY NGẦM VĨNH CỬU) -->
         <service
             android:name=".HostService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection|specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="screen_capture_for_accessibility_assistance" />
-        </service>
+            android:foregroundServiceType="mediaProjection" />
 
-        <!-- 🧠 ACCESSIBILITY SERVICE (Đầu não điều khiển vuốt) -->
+        <!-- 🧠 ACCESSIBILITY SERVICE (ĐẦU NÃO ĐIỀU KHIỂN VUỐT) -->
         <service
             android:name=".HostAccessibility"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:enabled="true"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -79,11 +75,11 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- 🔄 BOOT RECEIVER (Tự khởi động khi bật máy) -->
+        <!-- 🔄 BOOT RECEIVER (TỰ KHỞI ĐỘNG KHI BẬT MÁY) -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
