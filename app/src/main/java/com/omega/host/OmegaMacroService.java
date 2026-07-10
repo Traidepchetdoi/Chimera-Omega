@@ -12,12 +12,13 @@ public class OmegaMacroService extends AccessibilityService {
     private Handler gestureHandler;
     
     // Tọa độ vùng trống an toàn (Góc trên bên phải - Không chạm nút bắn/joystick)
-    private final float ORIGIN_X = 900; 
-    private final float ORIGIN_Y = 500;
+    // Với màn hình 1200x2664, vùng này an toàn tuyệt đối
+    private final float ORIGIN_X = 1000; 
+    private final float ORIGIN_Y = 400;
     
     private final float SENSITIVITY = 0.15f; // Độ nhạy của cú nhích
-    private final float MAX_STEP = 20.0f;    // Giới hạn 1 cú nhích tối đa 20 pixel
-    private final float DEADZONE = 12.0f;    // Vùng chết: lệch < 12 pixel thì ngưng (Chống rung khi đã dính đầu)
+    private final float MAX_STEP = 25.0f;    // Giới hạn 1 cú nhích tối đa 25 pixel
+    private final float DEADZONE = 15.0f;    // Vùng chết: lệch < 15 pixel thì ngưng (Chống rung khi đã dính đầu)
     
     private long lastSwipeTime = 0;
 
@@ -36,27 +37,33 @@ public class OmegaMacroService extends AccessibilityService {
         if (Math.abs(dx) < DEADZONE && Math.abs(dy) < DEADZONE) return;
         
         // Nếu mất dấu quá xa, không nhích mù
-        if (!locked && (Math.abs(dx) > 500 || Math.abs(dy) > 800)) return;
+        if (!locked && (Math.abs(dx) > 600 || Math.abs(dy) > 1000)) return;
 
-        // Rate-Limiter: Giới hạn 50 cú nhích/giây (20ms/cú) để tránh làm nghẽn Input Dispatcher gây giật lag
+        // Rate-Limiter: Giới hạn 50 cú nhích/giây (20ms/cú) để tránh làm nghẽn Input Dispatcher
         long now = System.currentTimeMillis();
         if (now - lastSwipeTime < 20) return; 
         lastSwipeTime = now;
 
-        // 2. Tính toán vector nhích
-        float swipeX = dx * SENSITIVITY;
-        float swipeY = dy * SENSITIVITY;
+        // 2. TÍNH TOÁN VECTOR NHÍCH (TẦNG STACK)
+        float rawX = dx * SENSITIVITY;
+        float rawY = dy * SENSITIVITY;
 
-        swipeX = Math.max(-MAX_STEP, Math.min(MAX_STEP, swipeX));
-        swipeY = Math.max(-MAX_STEP, Math.min(MAX_STEP, swipeY));
+        // ÉP GIỚI HẠN (CLAMP)
+        float clampedX = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawX));
+        float clampedY = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawY));
 
-        // 3. Bơm Touch Event vi mô
+        // 3. ĐÓNG GÓI BIẾN FINAL CHO LAMBDA (TẦNG HEAP CAPTURE)
+        // Đây là chốt chặn giải quyết lỗi "effectively final" của Javac
+        final float swipeX = clampedX;
+        final float swipeY = clampedY;
+
+        // 4. BƠM TOUCH EVENT VI MÔ
         gestureHandler.post(() -> {
             Path path = new Path();
             path.moveTo(ORIGIN_X, ORIGIN_Y);
             path.lineTo(ORIGIN_X + swipeX, ORIGIN_Y + swipeY);
             
-            // Thời gian 10ms: Tạo cảm giác "dính" nam châm
+            // Thời gian 10ms: Tạo cảm giác "dính" nam châm, giả lập cơ tay người
             GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 10);
             GestureDescription gesture = new GestureDescription.Builder().addStroke(stroke).build();
             dispatchGesture(gesture, null, null);
