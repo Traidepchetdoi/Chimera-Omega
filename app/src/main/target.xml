@@ -1,0 +1,6 @@
+<system>
+    <user name="admin" />
+    <secret_key>OMEGA_MASTER_KEY_99283</secret_key>
+    <log>dummy data...</log>
+    <token>ghp_xxxxxxxxxxxxxxxxxxxx</token>
+</system>
