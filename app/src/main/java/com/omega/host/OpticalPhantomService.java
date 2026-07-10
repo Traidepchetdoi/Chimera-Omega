@@ -27,7 +27,9 @@ public class OpticalPhantomService extends Service {
     private int screenWidth, screenHeight;
 
     static { System.loadLibrary("omega_core"); }
-    public native float[] processOpticalFrame(ByteBuffer buffer, int w, int h, int rowStride);
+    
+    // [UPDATE] Chữ ký JNI 64-bit Double
+    public native double[] processOpticalFrame(ByteBuffer buffer, int w, int h, int rowStride);
 
     @Override
     public void onCreate() {
@@ -38,9 +40,7 @@ public class OpticalPhantomService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (mResultCode != -1 && mResultIntent != null) {
-            engageOpticalTrap(mResultCode, mResultIntent);
-        }
+        if (mResultCode != -1 && mResultIntent != null) engageOpticalTrap(mResultCode, mResultIntent);
         return START_STICKY;
     }
 
@@ -64,16 +64,14 @@ public class OpticalPhantomService extends Service {
                     ByteBuffer buffer = planes[0].getBuffer();
                     int rowStride = planes[0].getRowStride();
                     
-                    float[] result = processOpticalFrame(buffer, screenWidth, screenHeight, rowStride);
+                    double[] result = processOpticalFrame(buffer, screenWidth, screenHeight, rowStride);
                     
                     if (result != null && result.length >= 4) {
-                        // 1. TRUYỀN DELTA CHO CÁNH TAY NHÍCH VI MÔ
                         if (OmegaMacroService.instance != null) {
-                            OmegaMacroService.instance.injectMicroSwipe(result[0], result[1], result[2] == 1.0f);
+                            // Truyền Double 64-bit xuống Macro Service
+                            OmegaMacroService.instance.injectMicroSwipe(result[0], result[1], result[2] == 1.0);
                         }
-                        
-                        // 2. INFINITY SỨC (AUTO MEDKIT)
-                        if (result[3] == 1.0f && OmegaMacroService.instance != null) {
+                        if (result[3] == 1.0 && OmegaMacroService.instance != null) {
                             OmegaMacroService.instance.injectTap(screenWidth - 200, screenHeight - 300);
                         }
                     }
@@ -84,28 +82,22 @@ public class OpticalPhantomService extends Service {
     }
 
     private void createNotificationChannel() {
-        // IMPORTANCE_MIN: Chỉ hiện dấu chấm nhỏ trong khay, KHÔNG hiện trên thanh Status Bar, KHÔNG có tiếng
         NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "System Sync", NotificationManager.IMPORTANCE_MIN);
-        channel.setShowBadge(false); // Tắt badge icon trên icon app
+        channel.setShowBadge(false);
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
 
     private Notification createNotification() {
         return new NotificationCompat.Builder(this, "OMEGA_VISION")
-                .setContentTitle("Android System") // Giả danh thông báo hệ thống
+                .setContentTitle("Android System")
                 .setContentText("Syncing background processes...")
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth) // Icon bluetooth giả mạo
-                .setPriority(NotificationCompat.PRIORITY_MIN) // Mức ưu tiên thấp nhất
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
                 .build();
     }
 
-    @Override 
-    public IBinder onBind(Intent intent) { 
-        return null; 
-    }
-    
-    @Override 
-    public void onDestroy() {
+    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override public void onDestroy() {
         if (virtualDisplay != null) virtualDisplay.release();
         if (mediaProjection != null) mediaProjection.stop();
         super.onDestroy();
