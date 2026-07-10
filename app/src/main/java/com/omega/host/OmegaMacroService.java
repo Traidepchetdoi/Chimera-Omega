@@ -11,23 +11,23 @@ public class OmegaMacroService extends AccessibilityService {
     public static OmegaMacroService instance;
     private Handler gestureHandler;
     
-    // Tọa độ vùng trống an toàn (Góc trên bên phải - Tránh nút bắn/joystick)
+    // Tọa độ vùng trống an toàn
     private final float ORIGIN_X = 1000; 
     private final float ORIGIN_Y = 400;
     
-    // [OMEGA STABILIZER] THÔNG SỐ KHÓA CHẾT & HỖ TRỢ NHÍCH SIÊU VI MÔ
-    private final float SENSITIVITY = 0.08f;   // Biên độ cực nhỏ (Chống trượt đà / Overshoot)
-    private final float MAX_STEP = 15.0f;      // Giới hạn 1 cú nhích tối đa 15 pixel
-    private final float DEADZONE = 5.0f;       // Khóa chết: lệch < 5 pixel thì ngưng (Dính chặt như nam châm)
-    private final long STROKE_DURATION = 5;    // 5ms: Tốc độ xung ổn định
-    private final long RATE_LIMIT_MS = 8;      // 8ms: Tần suất 125Hz (Bơm nhích liên hoàn)
+    // [OMEGA SUB-PIXEL] THÔNG SỐ NHÍCH DƯỚI ĐIỂM ẢNH (0.5PX GRANULARITY)
+    private final float SENSITIVITY = 0.015f;  // Hệ số nhân cực tiểu (Tạo ra các vector 0.1px - 0.5px)
+    private final float MAX_STEP = 1.0f;       // Chặn cứng trần 1.0 pixel (Không bao giờ nhảy cóc)
+    private final float DEADZONE = 0.5f;       // Khóa chết ở nửa điểm ảnh (Dính chặt vào tâm hộp sọ)
+    private final long STROKE_DURATION = 4;    // 4ms: Xung nhịp chuẩn cho Unity Engine
+    private final long RATE_LIMIT_MS = 4;      // 4ms: Tần suất 250Hz (Bù đắp cho việc nhích quá nhỏ)
     
     private long lastSwipeTime = 0;
 
     @Override
     public void onServiceConnected() {
         instance = this;
-        HandlerThread thread = new HandlerThread("OmegaStabilizer");
+        HandlerThread thread = new HandlerThread("OmegaSubPixel");
         thread.start();
         gestureHandler = new Handler(thread.getLooper());
     }
@@ -35,22 +35,22 @@ public class OmegaMacroService extends AccessibilityService {
     public void injectMicroSwipe(float dx, float dy, boolean locked) {
         if (instance == null || gestureHandler == null) return;
 
-        // 1. Chốt chặn Khóa Chết (Deadzone 5px)
+        // 1. Chốt chặn Khóa Chết (Deadzone 0.5px)
         if (Math.abs(dx) < DEADZONE && Math.abs(dy) < DEADZONE) return;
         
         // Nếu mất dấu quá xa, không nhích mù
         if (!locked && (Math.abs(dx) > 600 || Math.abs(dy) > 1000)) return;
 
-        // 2. Rate-Limiter: Bơm 125 cú nhích/giây
+        // 2. Rate-Limiter: Ép xung 250Hz
         long now = System.currentTimeMillis();
         if (now - lastSwipeTime < RATE_LIMIT_MS) return; 
         lastSwipeTime = now;
 
-        // 3. TÍNH TOÁN VECTOR NHÍCH (SIÊU VI MÔ)
+        // 3. TÍNH TOÁN VECTOR NHÍCH (SUB-PIXEL)
         float rawX = dx * SENSITIVITY;
         float rawY = dy * SENSITIVITY;
 
-        // ÉP GIỚI HẠN (CLAMP)
+        // ÉP GIỚI HẠN (CLAMP) - Tối đa 1 pixel
         float clampedX = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawX));
         float clampedY = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawY));
 
@@ -58,7 +58,7 @@ public class OmegaMacroService extends AccessibilityService {
         final float swipeX = clampedX;
         final float swipeY = clampedY;
 
-        // 5. BƠM XUNG ỔN ĐỊNH
+        // 5. BƠM XUNG DƯỚI ĐIỂM ẢNH
         gestureHandler.post(() -> {
             Path path = new Path();
             path.moveTo(ORIGIN_X, ORIGIN_Y);
