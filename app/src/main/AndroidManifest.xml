@@ -2,38 +2,41 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- [TẦNG 2] YÊU CẦU QUYỀN TỪ KERNEL & OS -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <!-- [TẦNG 3] VÙNG CÁCH LY ỨNG DỤNG (APPLICATION SANDBOX) -->
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Omega System"
-        android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         tools:targetApi="31">
 
-        <!-- [TẦNG 4A] GIAO DIỆN KÍCH HOẠT (MAIN ACTIVITY) -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- [TẦNG 4B] SERVICE BÓNG MA QUANG HỌC (OPTICAL PHANTOM SERVICE) -->
-        <!-- BẮT BUỘC: Phải nằm TRONG thẻ <application> -->
         <service
             android:name=".OpticalPhantomService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-    </application>
+        <service
+            android:name=".OmegaMacroService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
+    </application>
 </manifest>
