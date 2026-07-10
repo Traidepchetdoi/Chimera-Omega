@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cmath>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_GRAVITY", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_SNIPER", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -11,27 +11,36 @@ struct TargetState {
     bool needsHeal;
 };
 
-class AdaptivePIDCore {
+class SniperChainCore {
 private:
     double prevDX = 0, prevDY = 0;
     
-    // [OMEGA TUNING] THÔNG SỐ PID & TRỌNG LỰC HÃM PHANH
-    const double Kp = 0.14;  // Lực kéo (Tăng nhẹ để bám nhanh hơn)
-    const double Kd = 0.90;  // Lực hãm gốc
-    const double GRAVITY_ZONE = 60.0; // Bán kính kích hoạt giếng trọng lực (pixel)
-    const double BRAKE_INTENSITY = 12.0; // Cường độ hãm phanh khi vào vùng gần
+    // [OMEGA IRON CHAIN] LỰC CĂNG TUYỆT ĐỐI
+    const double Kp = 2.5;             
+    const double Kd = 1.5;             
+    const double MIN_TENSION = 120.0;  
+    const double MAX_TENSION = 350.0;  
+
+    double clamp(double v, double lo, double hi) {
+        return (v < lo) ? lo : (v > hi) ? hi : v;
+    }
 
 public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
         TargetState state = {0, 0, false, false};
+        
+        // Biến tích lũy cho Trọng tâm cụm (Centroid)
+        double sumX = 0, sumY = 0;
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
+        // Quét toàn bộ màn hình
         for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
             for (int x = 0; x < width; x += 4) {
                 const uint8_t* p = rowPtr + (x * 4);
                 if (p[0] > 180 && p[1] < 90 && p[2] < 90) {
+                    sumX += x; sumY += y;
                     if (x < minX) minX = x; if (x > maxX) maxX = x;
                     if (y < minY) minY = y; if (y > maxY) maxY = y;
                     pixelCount++;
@@ -39,43 +48,52 @@ public:
             }
         }
 
-        if (pixelCount > 30 && maxX > minX && maxY > minY) {
+        // [ADAPTIVE TARGETING] HẠ NGƯỠNG XUỐNG 3 PIXEL ĐỂ BẮT MỤC TIÊU 400M
+        if (pixelCount >= 3) { 
             int bw = maxX - minX;
             int bh = maxY - minY;
-            if (bh > bw * 0.5f) {
-                double headX = minX + (bw / 2.0);
-                
-                // [ĐIỀU CHỈNH TỌA ĐỘ Y] 0.32 = Ngay trên lông mày, dưới trán
-                double headY = minY + (bh * 0.32); 
-                
-                double dx = headX - (width / 2.0);
-                double dy = headY - (height / 2.0);
+            
+            double targetX, targetY;
 
-                // 1. LỰC KÉO TỶ LỆ (PROPORTIONAL)
-                double pX = dx * Kp;
-                double pY = dy * Kp;
-                
-                // 2. LỰC HÃM THÍCH NGHI (ADAPTIVE GRAVITY BRAKING)
-                // Tính khoảng cách hiện tại từ tâm đến đầu địch
-                double dist = std::sqrt(dx*dx + dy*dy);
-                
-                // Hệ số nhân hãm phanh: Càng gần mục tiêu, lực hãm càng tăng theo hàm nghịch đảo
-                // Tạo hiệu ứng "Giếng từ trường" hút và đóng băng tâm súng ngay tại điểm chạm
-                double brakeMultiplier = 1.0;
-                if (dist < GRAVITY_ZONE) {
-                    brakeMultiplier = 1.0 + (BRAKE_INTENSITY / (dist + 2.0));
-                }
-                
-                double dX = (dx - prevDX) * Kd * brakeMultiplier;
-                double dY = (dy - prevDY) * Kd * brakeMultiplier;
-                
-                // Tổng lực = Lực kéo - Lực hãm thích nghi
-                state.forceX = pX - dX; 
-                state.forceY = pY - dY;
-                
-                prevDX = dx; prevDY = dy;
-                state.locked = true;
+            // 1. CHẾ ĐỘ SNIPER TẦM XA (MICRO-CLUSTER)
+            // Nếu cụm pixel < 40 (Địch ở xa, chỉ là một chấm đỏ nhỏ)
+            if (pixelCount < 40) {
+                // Dùng Trọng tâm Toán học (Centroid). 
+                // Không cần nhân 0.32, vì bản thân cụm 3x3 pixel đó CHÍNH LÀ cái đầu.
+                targetX = sumX / pixelCount;
+                targetY = sumY / pixelCount;
+            } 
+            // 2. CHẾ ĐỘ CẬN CHIẾN (MACRO-BODY)
+            // Nếu cụm pixel >= 40 (Địch ở gần, hiện rõ toàn thân)
+            else {
+                targetX = minX + (bw / 2.0);
+                targetY = minY + (bh * 0.32); // Khóa trên lông mày
             }
+            
+            double dx = targetX - (width / 2.0);
+            double dy = targetY - (height / 2.0);
+
+            // [IRON CHAIN] ÉP BUỘC LỰC CĂNG TỐI THIỂU
+            double rawX = dx * Kp;
+            double rawY = dy * Kp;
+
+            if (rawX > 0) rawX = fmax(rawX, MIN_TENSION);
+            else if (rawX < 0) rawX = fmin(rawX, -MIN_TENSION);
+            
+            if (rawY > 0) rawY = fmax(rawY, MIN_TENSION);
+            else if (rawY < 0) rawY = fmin(rawY, -MIN_TENSION);
+
+            double dX = (dx - prevDX) * Kd;
+            double dY = (dy - prevDY) * Kd;
+            
+            double finalX = rawX - dX;
+            double finalY = rawY - dY;
+
+            state.forceX = clamp(finalX, -MAX_TENSION, MAX_TENSION);
+            state.forceY = clamp(finalY, -MAX_TENSION, MAX_TENSION);
+            
+            prevDX = dx; prevDY = dy;
+            state.locked = true;
         } else {
             prevDX = 0; prevDY = 0;
         }
@@ -105,7 +123,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    AdaptivePIDCore core;
+    SniperChainCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
