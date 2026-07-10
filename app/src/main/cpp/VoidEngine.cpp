@@ -3,19 +3,23 @@
 #include <cstdint>
 #include <cmath>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_DAC", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_GRAVITY", __VA_ARGS__)
 
 struct TargetState {
-    double forceX, forceY; // Nâng cấp lên 64-bit Double
+    double forceX, forceY; 
     bool locked;
     bool needsHeal;
 };
 
-class PIDCore64 {
+class AdaptivePIDCore {
 private:
     double prevDX = 0, prevDY = 0;
-    const double Kp = 0.12f;  
-    const double Kd = 0.85f;  
+    
+    // [OMEGA TUNING] THÔNG SỐ PID & TRỌNG LỰC HÃM PHANH
+    const double Kp = 0.14;  // Lực kéo (Tăng nhẹ để bám nhanh hơn)
+    const double Kd = 0.90;  // Lực hãm gốc
+    const double GRAVITY_ZONE = 60.0; // Bán kính kích hoạt giếng trọng lực (pixel)
+    const double BRAKE_INTENSITY = 12.0; // Cường độ hãm phanh khi vào vùng gần
 
 public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
@@ -40,16 +44,32 @@ public:
             int bh = maxY - minY;
             if (bh > bw * 0.5f) {
                 double headX = minX + (bw / 2.0);
-                double headY = minY + (bh * 0.22); 
+                
+                // [ĐIỀU CHỈNH TỌA ĐỘ Y] 0.32 = Ngay trên lông mày, dưới trán
+                double headY = minY + (bh * 0.32); 
                 
                 double dx = headX - (width / 2.0);
                 double dy = headY - (height / 2.0);
 
+                // 1. LỰC KÉO TỶ LỆ (PROPORTIONAL)
                 double pX = dx * Kp;
                 double pY = dy * Kp;
-                double dX = (dx - prevDX) * Kd;
-                double dY = (dy - prevDY) * Kd;
                 
+                // 2. LỰC HÃM THÍCH NGHI (ADAPTIVE GRAVITY BRAKING)
+                // Tính khoảng cách hiện tại từ tâm đến đầu địch
+                double dist = std::sqrt(dx*dx + dy*dy);
+                
+                // Hệ số nhân hãm phanh: Càng gần mục tiêu, lực hãm càng tăng theo hàm nghịch đảo
+                // Tạo hiệu ứng "Giếng từ trường" hút và đóng băng tâm súng ngay tại điểm chạm
+                double brakeMultiplier = 1.0;
+                if (dist < GRAVITY_ZONE) {
+                    brakeMultiplier = 1.0 + (BRAKE_INTENSITY / (dist + 2.0));
+                }
+                
+                double dX = (dx - prevDX) * Kd * brakeMultiplier;
+                double dY = (dy - prevDY) * Kd * brakeMultiplier;
+                
+                // Tổng lực = Lực kéo - Lực hãm thích nghi
                 state.forceX = pX - dX; 
                 state.forceY = pY - dY;
                 
@@ -60,6 +80,7 @@ public:
             prevDX = 0; prevDY = 0;
         }
 
+        // Quét Máu (Infinity Sức)
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
@@ -84,10 +105,9 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    PIDCore64 core;
+    AdaptivePIDCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
-    // Trả về mảng Double 64-bit
     jdoubleArray result = env->NewDoubleArray(4);
     double data[4] = {state.forceX, state.forceY, state.locked ? 1.0 : 0.0, state.needsHeal ? 1.0 : 0.0};
     env->SetDoubleArrayRegion(result, 0, 4, data);
