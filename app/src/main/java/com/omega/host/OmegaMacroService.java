@@ -11,54 +11,60 @@ public class OmegaMacroService extends AccessibilityService {
     public static OmegaMacroService instance;
     private Handler gestureHandler;
     
-    // Tọa độ vùng trống an toàn
     private final float ORIGIN_X = 1000; 
     private final float ORIGIN_Y = 400;
     
-    // [OMEGA SUB-PIXEL] THÔNG SỐ NHÍCH DƯỚI ĐIỂM ẢNH (0.5PX GRANULARITY)
-    private final float SENSITIVITY = 0.015f;  // Hệ số nhân cực tiểu (Tạo ra các vector 0.1px - 0.5px)
-    private final float MAX_STEP = 1.0f;       // Chặn cứng trần 1.0 pixel (Không bao giờ nhảy cóc)
-    private final float DEADZONE = 0.5f;       // Khóa chết ở nửa điểm ảnh (Dính chặt vào tâm hộp sọ)
-    private final long STROKE_DURATION = 4;    // 4ms: Xung nhịp chuẩn cho Unity Engine
-    private final long RATE_LIMIT_MS = 4;      // 4ms: Tần suất 250Hz (Bù đắp cho việc nhích quá nhỏ)
+    // [OMEGA ACCUMULATOR] BỘ TÍCH PHÂN DƯỚI ĐIỂM ẢNH
+    private float accX = 0;
+    private float accY = 0;
+    
+    // Ngưỡng vật lý tối thiểu để Unity Engine ghi nhận (0.4px)
+    private final float SUB_PIXEL_THRESHOLD = 0.4f; 
+    private final long STROKE_DURATION = 4;    // 4ms
+    private final long RATE_LIMIT_MS = 4;      // 250Hz
     
     private long lastSwipeTime = 0;
 
     @Override
     public void onServiceConnected() {
         instance = this;
-        HandlerThread thread = new HandlerThread("OmegaSubPixel");
+        HandlerThread thread = new HandlerThread("OmegaAccumulator");
         thread.start();
         gestureHandler = new Handler(thread.getLooper());
     }
 
-    public void injectMicroSwipe(float dx, float dy, boolean locked) {
+    public void injectMicroSwipe(float forceX, float forceY, boolean locked) {
         if (instance == null || gestureHandler == null) return;
 
-        // 1. Chốt chặn Khóa Chết (Deadzone 0.5px)
-        if (Math.abs(dx) < DEADZONE && Math.abs(dy) < DEADZONE) return;
-        
-        // Nếu mất dấu quá xa, không nhích mù
-        if (!locked && (Math.abs(dx) > 600 || Math.abs(dy) > 1000)) return;
+        // 1. TÍCH LŨY SAI SỐ 0.001PX (SUB-PIXEL ACCUMULATION)
+        // Nhân lực PID với 0.015 để tạo ra các vi phân 0.001px
+        accX += forceX * 0.015f; 
+        accY += forceY * 0.015f;
 
-        // 2. Rate-Limiter: Ép xung 250Hz
+        // Nếu không có mục tiêu, xả bộ nhớ đệm
+        if (!locked) {
+            accX = 0; accY = 0;
+            return;
+        }
+
+        // 2. KIỂM TRA NGƯỠNG VẬT LÝ (UNITY TOUCHSLOP)
+        if (Math.abs(accX) < SUB_PIXEL_THRESHOLD && Math.abs(accY) < SUB_PIXEL_THRESHOLD) {
+            return; // Chưa đủ 0.4px, giữ lại trong biến nhớ (Khóa chết tuyệt đối)
+        }
+
+        // 3. RATE-LIMITER (250Hz)
         long now = System.currentTimeMillis();
         if (now - lastSwipeTime < RATE_LIMIT_MS) return; 
         lastSwipeTime = now;
 
-        // 3. TÍNH TOÁN VECTOR NHÍCH (SUB-PIXEL)
-        float rawX = dx * SENSITIVITY;
-        float rawY = dy * SENSITIVITY;
+        // 4. TRÍCH XUẤT GÓI NHÍCH 0.4PX & XẢ BỘ NHỚ ĐỆM
+        final float swipeX = Math.signum(accX) * SUB_PIXEL_THRESHOLD;
+        final float swipeY = Math.signum(accY) * SUB_PIXEL_THRESHOLD;
+        
+        accX -= swipeX; // Trừ lại phần đã nhích
+        accY -= swipeY;
 
-        // ÉP GIỚI HẠN (CLAMP) - Tối đa 1 pixel
-        float clampedX = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawX));
-        float clampedY = Math.max(-MAX_STEP, Math.min(MAX_STEP, rawY));
-
-        // 4. ĐÓNG GÓI BIẾN FINAL CHO LAMBDA
-        final float swipeX = clampedX;
-        final float swipeY = clampedY;
-
-        // 5. BƠM XUNG DƯỚI ĐIỂM ẢNH
+        // 5. BƠM XUNG
         gestureHandler.post(() -> {
             Path path = new Path();
             path.moveTo(ORIGIN_X, ORIGIN_Y);
