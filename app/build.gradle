@@ -1,3 +1,7 @@
+plugins {
+    id 'com.android.application'
+}
+
 android {
     namespace 'com.omega.host'
     compileSdk 34
@@ -7,20 +11,13 @@ android {
         minSdk 24
         targetSdk 34
         versionCode 1
-        versionName "Omega-Stealth-1.0"
-        
-        // BẮT BUỘC: Chỉ định rõ ABI cho điện thoại ARM64, tránh build ra rác x86 làm nặng APK
-        ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a'
-        }
+        versionName "Omega-Java-1.0"
     }
 
     buildTypes {
         release {
-            // TỐI QUAN TRỌNG: Tắt R8 Minification cho bản build GitHub để tránh xóa mất hàm Callback
-            // Nếu muốn tàng hình tuyệt đối (obfuscate), phải viết file proguard-rules.pro, 
-            // nhưng với người mới build trên điện thoại, TẮT NÓ ĐI để đảm bảo 0% Crash.
-            minifyEnabled false 
+            // TẮT R8: Ngăn Android xóa mất hàm pushLog và Handler callback
+            minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -28,11 +25,13 @@ android {
             minifyEnabled false
         }
     }
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
 }
