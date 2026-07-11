@@ -4,7 +4,7 @@
 #include <cmath>
 #include <time.h>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_BONE", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_ESP", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -12,22 +12,17 @@ struct TargetState {
     bool needsHeal;
 };
 
-class BoneProjectionCore {
+class ESPBoneTracker {
 private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
     double velX = 0, velY = 0; 
     
-    // [OMEGA JSON SKELETON RATIOS] - ĐÓNG BĂNG TỪ FILE JSON CỦA ANH
-    const double RATIO_HEAD_STAND = 0.325; // Tỷ lệ từ Tâm Thân lên Đầu khi ĐỨNG
-    const double RATIO_HEAD_CROUCH = 0.480; // Tỷ lệ từ Tâm Thân lên Đầu khi CÚI / NÚP
-    const double POSTURE_THRESHOLD = 0.65; // Ngưỡng chiều cao để phân biệt Đứng/Cúi
-    
-    // [OMEGA 2D IRON CHAIN]
-    const double Kp = 2.5;             
-    const double Kd = 0.15;            
-    const double MIN_TENSION = 120.0;  
-    const double MAX_TENSION = 400.0;
+    // [OMEGA IRON CHAIN]
+    const double Kp = 3.0;             // Lực kéo mạnh hơn do ESP node rất nhỏ và chính xác
+    const double Kd = 0.20;            
+    const double MIN_TENSION = 150.0;  
+    const double MAX_TENSION = 500.0;
 
     double clamp(double v, double lo, double hi) {
         return (v < lo) ? lo : (v > hi) ? hi : v;
@@ -47,15 +42,17 @@ public:
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
-        // 1. QUÉT KHỐI THÂN (TORSO MASS SCAN)
-        // Dùng Trọng tâm Sắc độ để tìm "Khối Thân" - thứ to nhất và ổn định nhất
-        for (int y = 0; y < height; y += 4) {
+        // 1. QUÉT MÀU CỦA ESP SKELETON (XUYÊN TƯỜNG)
+        // Giả định Aimbody vẽ Node Đầu / Đường Xương bằng màu XANH LÁ NEON (R<80, G>200, B<80)
+        // Hoặc màu VÀNG (R>200, G>200, B<50). Ở đây ta lọc Xanh Lá Neon.
+        for (int y = 0; y < height; y += 3) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
-            for (int x = 0; x < width; x += 4) {
+            for (int x = 0; x < width; x += 3) {
                 const uint8_t* p = rowPtr + (x * 4);
-                double redDom = p[0] - (p[1] + p[2]) * 0.5;
-                if (redDom > 40 && p[0] > 150) {
-                    double weight = redDom;
+                
+                // Phát hiện màu Xanh Lá Neon của ESP (Hoặc chỉnh lại if theo màu ESP của anh)
+                if (p[1] > 200 && p[0] < 100 && p[2] < 100) {
+                    double weight = p[1]; // Độ sáng của màu xanh
                     sumWX += x * weight;
                     sumWY += y * weight;
                     totalWeight += weight;
@@ -66,48 +63,31 @@ public:
             }
         }
 
-        if (totalWeight > 0 && pixelCount >= 3) { 
-            // Tọa độ Tâm Khối (Chính là Torso / Họng súng của địch)
-            double torsoCX = sumWX / totalWeight;
-            double torsoCY = sumWY / totalWeight;
+        // Chỉ cần 2 pixel ESP là đủ để khóa (Do đường kẻ xương rất mỏng)
+        if (totalWeight > 0 && pixelCount >= 2) { 
             
-            int boxHeight = maxY - minY;
-            int boxWidth = maxX - minX;
-            
-            // 2. CHIẾU RỌI KHUNG XƯƠNG JSON (SKELETON PROJECTION)
-            // Tính toán xem địch đang Đứng hay Cúi dựa trên tỷ lệ Chiều Cao / Chiều Ngang
-            double postureRatio = (boxWidth > 0) ? (double)boxHeight / boxWidth : 1.0;
-            
-            double projectedHeadY;
-            if (postureRatio > POSTURE_THRESHOLD) {
-                // ĐỊCH ĐANG ĐỨNG: Đầu nằm cách Tâm Thân 32.5% chiều cao hộp bao
-                projectedHeadY = minY + (boxHeight * (0.5 - RATIO_HEAD_STAND));
-            } else {
-                // ĐỊCH ĐANG CÚI / NÚP: Đầu rụt xuống, cách Tâm Thân 48% chiều cao
-                projectedHeadY = minY + (boxHeight * (0.5 - RATIO_HEAD_CROUCH));
-            }
+            // Tọa độ tuyệt đối của Node Đầu (Head Node) do Aimbody vẽ ra
+            double headNodeX = sumWX / totalWeight;
+            double headNodeY = sumWY / totalWeight;
 
-            // Tọa độ X của đầu luôn thẳng hàng với Tâm Khối (Trừ khi địch xoay lưng, nhưng ta bỏ qua để giữ sự ổn định)
-            double projectedHeadX = torsoCX; 
-
-            // 3. ĐỒNG BỘ HÓA PHẦN CỨNG & VẬN TỐC
+            // 2. ĐỒNG BỘ HÓA PHẦN CỨNG & VẬN TỐC
             double currentTime = getHardwareTime();
             double dt = currentTime - prevTime;
             if (dt < 0.001) dt = 0.001;
 
             if (prevTime > 0) {
-                double rawVX = (projectedHeadX - prevCX) / dt;
-                double rawVY = (projectedHeadY - prevCY) / dt;
+                double rawVX = (headNodeX - prevCX) / dt;
+                double rawVY = (headNodeY - prevCY) / dt;
                 velX = (velX * 0.7) + (rawVX * 0.3);
                 velY = (velY * 0.7) + (rawVY * 0.3);
             }
-            prevCX = projectedHeadX; prevCY = projectedHeadY; prevTime = currentTime;
+            prevCX = headNodeX; prevCY = headNodeY; prevTime = currentTime;
 
-            // 4. DELTA TỪ TÂM MÀN HÌNH ĐẾN "CÁI ĐẦU ẢO" (PROJECTED HEAD)
-            double dx = projectedHeadX - (width / 2.0);
-            double dy = projectedHeadY - (height / 2.0);
+            // 3. DELTA TỪ TÂM MÀN HÌNH ĐẾN NODE XƯƠNG ESP
+            double dx = headNodeX - (width / 2.0);
+            double dy = headNodeY - (height / 2.0);
 
-            // 5. SỢI XÍCH SẮT (IRON CHAIN)
+            // 4. SỢI XÍCH SẮT (IRON CHAIN)
             double rawX = dx * Kp;
             double rawY = dy * Kp;
 
@@ -128,7 +108,7 @@ public:
             prevTime = 0;
         }
 
-        // Quét Máu (Infinity Sức)
+        // Quét Máu (Infinity Sức - Vẫn quét UI của Game gốc)
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
@@ -153,7 +133,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    BoneProjectionCore core;
+    ESPBoneTracker core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
