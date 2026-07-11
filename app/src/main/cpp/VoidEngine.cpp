@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <cstdint>
 #include <cmath>
+#include <algorithm> // [OMEGA STL PATCH] Bắt buộc phải có để dùng std::max và std::min
 #include <time.h>
 #include <atomic>
 
@@ -21,7 +22,6 @@ private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
     
-    // [OMEGA GHOST] BIẾN NHỚ BÓNG MA (DÙNG KHI GAME ENGINE TẮT VIỀN ĐỎ Ở 200M)
     double ghostX = 0, ghostY = 0;
     double ghostVX = 0, ghostVY = 0;
     bool wasLocked = false;
@@ -29,10 +29,8 @@ private:
 
     const double JSON_HEAD_PROJECTION_RATIO = 0.444; 
     
-    // [OMEGA IMPULSE CANCELLATION] HỆ SỐ TRIỆT TIÊU XUNG LƯỢNG
-    // Không có MAX_TENSION. Lực cản = Lực vuốt của người dùng * 15.0
     const double CANCELLATION_RATIO = 15.0; 
-    const double BASE_LOCK_TENSION = 250.0; // Lực hút nền khi đứng yên
+    const double BASE_LOCK_TENSION = 250.0; 
     const double GYRO_THRESHOLD = 0.10;     
 
     double clamp(double v, double lo, double hi) {
@@ -54,7 +52,6 @@ public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
         TargetState state = {0, 0, false, false};
         
-        // 1. QUÉT THỰC THỂ (ADAPTIVE GRID)
         int roiMinX = width, roiMaxX = 0, roiMinY = height, roiMaxY = 0;
         bool foundROI = false;
 
@@ -74,6 +71,7 @@ public:
         int finalMinX = width, finalMaxX = 0, finalMinY = height, finalMaxY = 0;
 
         if (foundROI) {
+            // std::max và std::min sẽ hoạt động hoàn hảo nhờ <algorithm> ở dòng 5
             int scanMinX = std::max(0, roiMinX - 15);
             int scanMaxX = std::min(width - 1, roiMaxX + 15);
             int scanMinY = std::max(0, roiMinY - 15);
@@ -117,7 +115,6 @@ public:
             wasLocked = true;
             ghostFrames = 0;
 
-            // Lưu vận tốc vào Bóng Ma (Để chuẩn bị cho lúc mất dấu ở 200m)
             if (prevTime > 0) {
                 ghostVX = (targetX - prevCX) / dt;
                 ghostVY = (targetY - prevCY) / dt;
@@ -125,21 +122,18 @@ public:
             ghostX = targetX; ghostY = targetY;
 
         } else {
-            // [OMEGA GHOST TRACKING] KÍCH HOẠT BÓNG MA KHI MẤT DẤU (200M / NÚP SAU TƯỜNG)
             if (wasLocked) {
                 ghostFrames++;
-                if (ghostFrames < 120) { // Nuôi Bóng Ma trong 2 giây
-                    // Dead Reckoning: Bóng ma tiếp tục bay theo quán tính
+                if (ghostFrames < 120) { 
                     ghostX += ghostVX * dt;
                     ghostY += ghostVY * dt;
                     
-                    // Giả lập ma sát không khí
                     ghostVX *= 0.98; 
                     ghostVY *= 0.98; 
                     
                     targetX = ghostX;
                     targetY = ghostY;
-                    hasTarget = true; // Vẫn báo là đang khóa (để Java tiếp tục bơm lực cản)
+                    hasTarget = true; 
                 } else {
                     wasLocked = false;
                 }
@@ -153,23 +147,15 @@ public:
             double dy = targetY - (height / 2.0);
             double dist = std::sqrt(dx*dx + dy*dy);
 
-            // [OMEGA IMPULSE CANCELLATION] TRIỆT TIÊU XUNG LƯỢNG CHỦ ĐỘNG
-            // Lực hút nền (Khi anh không vuốt)
             double dynamicTension = BASE_LOCK_TENSION; 
             
-            // Nếu anh đang cố tình vuốt MẠNH để thoát khỏi đầu địch (Gyro lớn)
             if (gyroMagnitude > GYRO_THRESHOLD) {
-                // Lực cản = Lực vuốt của anh * 15.0. 
-                // Anh vuốt càng mạnh, Bãi Lầy Nam Châm càng hút ngược lại vô cực.
                 dynamicTension += (gyroMagnitude * CANCELLATION_RATIO * 100.0); 
             }
 
-            // Tính toán Vector kéo
             double pullX = dx * (dynamicTension / (dist + 1.0));
             double pullY = dy * (dynamicTension / (dist + 1.0));
 
-            // Giới hạn lại ở mức an toàn cho Touch-DAC (Tránh xé rách Input Dispatcher)
-            // Nhưng vẫn đủ lớn để đè bẹp lực vuốt của ngón tay
             state.forceX = clamp(pullX, -800.0, 800.0);
             state.forceY = clamp(pullY, -800.0, 800.0);
             state.locked = true;
@@ -178,7 +164,6 @@ public:
             state.forceX = 0; state.forceY = 0; state.locked = false;
         }
 
-        // Quét Máu
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
