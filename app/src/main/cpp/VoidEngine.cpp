@@ -4,7 +4,7 @@
 #include <cmath>
 #include <time.h>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_QUANTUM", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_BONE", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -12,13 +12,18 @@ struct TargetState {
     bool needsHeal;
 };
 
-class QuantumAttractorCore {
+class BoneProjectionCore {
 private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
     double velX = 0, velY = 0; 
     
-    // [OMEGA QUANTUM] THÔNG SỐ TRƯỜNG HẤP DẪN
+    // [OMEGA JSON SKELETON RATIOS] - ĐÓNG BĂNG TỪ FILE JSON CỦA ANH
+    const double RATIO_HEAD_STAND = 0.325; // Tỷ lệ từ Tâm Thân lên Đầu khi ĐỨNG
+    const double RATIO_HEAD_CROUCH = 0.480; // Tỷ lệ từ Tâm Thân lên Đầu khi CÚI / NÚP
+    const double POSTURE_THRESHOLD = 0.65; // Ngưỡng chiều cao để phân biệt Đứng/Cúi
+    
+    // [OMEGA 2D IRON CHAIN]
     const double Kp = 2.5;             
     const double Kd = 0.15;            
     const double MIN_TENSION = 120.0;  
@@ -38,27 +43,22 @@ public:
     TargetState ProcessFrame(const uint8_t* basePtr, int width, int height, int rowStride) {
         TargetState state = {0, 0, false, false};
         
-        // [TƯ DUY ĐỈNH CAO 1: TÂM TỶ TRỌNG SẮC ĐỘ - INTENSITY-WEIGHTED CENTROID]
-        // Không đếm pixel. Đo "trọng lượng" của màu đỏ.
-        // Dù cái đầu chỉ là 1.5 pixel mờ ảo, đỉnh của sóng màu đỏ vẫn nằm chính xác giữa hốc mắt.
         double sumWX = 0, sumWY = 0, totalWeight = 0;
         int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
+        // 1. QUÉT KHỐI THÂN (TORSO MASS SCAN)
+        // Dùng Trọng tâm Sắc độ để tìm "Khối Thân" - thứ to nhất và ổn định nhất
         for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
             for (int x = 0; x < width; x += 4) {
                 const uint8_t* p = rowPtr + (x * 4);
-                
-                // Tính độ thuần khiết của màu đỏ (Red Dominance)
                 double redDom = p[0] - (p[1] + p[2]) * 0.5;
-                
                 if (redDom > 40 && p[0] > 150) {
-                    double weight = redDom; // Pixel càng đỏ đậm, trọng lực càng lớn
+                    double weight = redDom;
                     sumWX += x * weight;
                     sumWY += y * weight;
                     totalWeight += weight;
-                    
                     if (x < minX) minX = x; if (x > maxX) maxX = x;
                     if (y < minY) minY = y; if (y > maxY) maxY = y;
                     pixelCount++;
@@ -66,53 +66,50 @@ public:
             }
         }
 
-        if (totalWeight > 0 && pixelCount >= 2) { 
-            int bw = maxX - minX;
-            int bh = maxY - minY;
+        if (totalWeight > 0 && pixelCount >= 3) { 
+            // Tọa độ Tâm Khối (Chính là Torso / Họng súng của địch)
+            double torsoCX = sumWX / totalWeight;
+            double torsoCY = sumWY / totalWeight;
             
-            // Tọa độ thực sự của cái đầu (Chính xác đến 0.0001px nhờ nội suy trọng số)
-            double currentCX = sumWX / totalWeight;
-            double currentCY = sumWY / totalWeight;
-
-            // [TƯ DUY ĐỈNH CAO 2: HIỆU CHỈNH THIÊN VỊ PHỐI CẢNH (PERSPECTIVE BIAS)]
-            // Khi địch ở cực xa, GPU khử răng cưa làm tâm cụm màu đỏ bị lệch xuống.
-            // Ta bù trừ một lượng Y nghịch biến với kích thước pixel để nhấc tâm lên đúng đỉnh đầu.
-            double pixelMass = bw * bh;
-            double perspectiveBiasY = 0.0;
-            if (pixelMass < 20.0) { // Địch ở cực xa (dưới 5x5 pixel)
-                perspectiveBiasY = -1.5; 
-            } else if (pixelMass < 100.0) {
-                perspectiveBiasY = -0.5;
+            int boxHeight = maxY - minY;
+            int boxWidth = maxX - minX;
+            
+            // 2. CHIẾU RỌI KHUNG XƯƠNG JSON (SKELETON PROJECTION)
+            // Tính toán xem địch đang Đứng hay Cúi dựa trên tỷ lệ Chiều Cao / Chiều Ngang
+            double postureRatio = (boxWidth > 0) ? (double)boxHeight / boxWidth : 1.0;
+            
+            double projectedHeadY;
+            if (postureRatio > POSTURE_THRESHOLD) {
+                // ĐỊCH ĐANG ĐỨNG: Đầu nằm cách Tâm Thân 32.5% chiều cao hộp bao
+                projectedHeadY = minY + (boxHeight * (0.5 - RATIO_HEAD_STAND));
+            } else {
+                // ĐỊCH ĐANG CÚI / NÚP: Đầu rụt xuống, cách Tâm Thân 48% chiều cao
+                projectedHeadY = minY + (boxHeight * (0.5 - RATIO_HEAD_CROUCH));
             }
-            currentCY += perspectiveBiasY;
-            
-            // 1. ĐỒNG BỘ HÓA PHẦN CỨNG (HARDWARE TIME SYNC)
+
+            // Tọa độ X của đầu luôn thẳng hàng với Tâm Khối (Trừ khi địch xoay lưng, nhưng ta bỏ qua để giữ sự ổn định)
+            double projectedHeadX = torsoCX; 
+
+            // 3. ĐỒNG BỘ HÓA PHẦN CỨNG & VẬN TỐC
             double currentTime = getHardwareTime();
             double dt = currentTime - prevTime;
             if (dt < 0.001) dt = 0.001;
 
-            // 2. TÍNH VẬN TỐC THỰC CỦA ĐÁM MÂY XÁC SUẤT
             if (prevTime > 0) {
-                double rawVX = (currentCX - prevCX) / dt;
-                double rawVY = (currentCY - prevCY) / dt;
+                double rawVX = (projectedHeadX - prevCX) / dt;
+                double rawVY = (projectedHeadY - prevCY) / dt;
                 velX = (velX * 0.7) + (rawVX * 0.3);
                 velY = (velY * 0.7) + (rawVY * 0.3);
             }
-            prevCX = currentCX; prevCY = currentCY; prevTime = currentTime;
+            prevCX = projectedHeadX; prevCY = projectedHeadY; prevTime = currentTime;
 
-            double dx = currentCX - (width / 2.0);
-            double dy = currentCY - (height / 2.0);
+            // 4. DELTA TỪ TÂM MÀN HÌNH ĐẾN "CÁI ĐẦU ẢO" (PROJECTED HEAD)
+            double dx = projectedHeadX - (width / 2.0);
+            double dy = projectedHeadY - (height / 2.0);
 
-            // [TƯ DUY ĐỈNH CAO 3: TRƯỜNG HẤP DẪN GAUSS (GAUSSIAN ATTRACTOR FIELD)]
-            double dynamicKp = Kp;
-            
-            // Nếu đích đến quá nhỏ (cỡ lượng tử), làm mềm lực kéo để tránh dao động (Quantum Jitter)
-            if (pixelMass < 15.0) {
-                dynamicKp *= 0.6; 
-            }
-
-            double rawX = dx * dynamicKp;
-            double rawY = dy * dynamicKp;
+            // 5. SỢI XÍCH SẮT (IRON CHAIN)
+            double rawX = dx * Kp;
+            double rawY = dy * Kp;
 
             if (rawX > 0) rawX = fmax(rawX, MIN_TENSION);
             else if (rawX < 0) rawX = fmin(rawX, -MIN_TENSION);
@@ -156,7 +153,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    QuantumAttractorCore core;
+    BoneProjectionCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
