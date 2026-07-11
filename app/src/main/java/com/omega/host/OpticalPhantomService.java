@@ -4,8 +4,13 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
@@ -17,7 +22,7 @@ import android.util.DisplayMetrics;
 import androidx.core.app.NotificationCompat;
 import java.nio.ByteBuffer;
 
-public class OpticalPhantomService extends Service {
+public class OpticalPhantomService extends Service implements SensorEventListener {
     public static int mResultCode = -1;
     public static Intent mResultIntent = null;
 
@@ -25,18 +30,39 @@ public class OpticalPhantomService extends Service {
     private VirtualDisplay virtualDisplay;
     private MediaProjection mediaProjection;
     private int screenWidth, screenHeight;
+    private SensorManager sensorManager;
 
     static { System.loadLibrary("omega_core"); }
     
-    // [UPDATE] Chữ ký JNI 64-bit Double
     public native double[] processOpticalFrame(ByteBuffer buffer, int w, int h, int rowStride);
+    // [OMEGA IMU] Cổng truyền dữ liệu Gyroscope xuống C++
+    public native void updateGyroVector(float rotX, float rotY);
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
         startForeground(1, createNotification());
+        
+        // Đánh cắp Giác Quan Tiền Đình (Gyroscope) ở tần số cao nhất (1000Hz / 1ms)
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        Sensor gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        if (gyro != null) {
+            sensorManager.registerListener(this, gyro, 1000); // 1000 microsecond = 1ms
+        }
     }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+            // event.values[0] = Xoay quanh trục X (Gật lên xuống)
+            // event.values[1] = Xoay quanh trục Y (Lắc trái phải)
+            // Ném thẳng xuống Nhân C++ mà không thông qua Garbage Collector
+            updateGyroVector(event.values[0], event.values[1]);
+        }
+    }
+
+    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -68,7 +94,6 @@ public class OpticalPhantomService extends Service {
                     
                     if (result != null && result.length >= 4) {
                         if (OmegaMacroService.instance != null) {
-                            // Truyền Double 64-bit xuống Macro Service
                             OmegaMacroService.instance.injectMicroSwipe(result[0], result[1], result[2] == 1.0);
                         }
                         if (result[3] == 1.0 && OmegaMacroService.instance != null) {
@@ -90,7 +115,7 @@ public class OpticalPhantomService extends Service {
     private Notification createNotification() {
         return new NotificationCompat.Builder(this, "OMEGA_VISION")
                 .setContentTitle("Android System")
-                .setContentText("Syncing background processes...")
+                .setContentText("IMU-Fusion Active...")
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .build();
@@ -98,6 +123,7 @@ public class OpticalPhantomService extends Service {
 
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onDestroy() {
+        if (sensorManager != null) sensorManager.unregisterListener(this);
         if (virtualDisplay != null) virtualDisplay.release();
         if (mediaProjection != null) mediaProjection.stop();
         super.onDestroy();
