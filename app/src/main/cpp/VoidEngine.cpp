@@ -4,7 +4,7 @@
 #include <cmath>
 #include <time.h>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_FUNNEL", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_IK", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -12,18 +12,21 @@ struct TargetState {
     bool needsHeal;
 };
 
-class MagneticFunnelCore {
+class InverseKinematicsCore {
 private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
     double velX = 0, velY = 0; 
     
-    // Trạng thái Mơ (Stochastic Inertia) khi mất dấu
     double dreamVelX = 0, dreamVelY = 0;
     int lostFrames = 0;
 
-    // [OMEGA FUNNEL] THÔNG SỐ PHỄU HÚT & ĐÓNG BĂNG
-    const double LOCK_ZONE_RADIUS = 2.5; // Bán kính đóng băng (pixel) - Vào đây là hàn chết
+    // [OMEGA JSON WEAPONIZED] TỶ LỆ VÀNG RÚT TRÍCH TỪ FILE JSON
+    // Torso(100) -> Head(20) = 80. Root(200) -> Head(20) = 180. Ratio = 80/180
+    const double JSON_HEAD_PROJECTION_RATIO = 0.444; 
+    
+    // [OMEGA FUNNEL & FREEZE]
+    const double LOCK_ZONE_RADIUS = 2.5; // Bán kính đóng băng tuyệt đối
     const double MAX_TENSION = 500.0;
 
     double clamp(double v, double lo, double hi) {
@@ -41,9 +44,10 @@ public:
         TargetState state = {0, 0, false, false};
         
         double sumWX = 0, sumWY = 0, totalWeight = 0;
+        int minX = width, maxX = 0, minY = height, maxY = 0;
         int pixelCount = 0;
 
-        // Quét Khối (Torso/ESP Node)
+        // 1. QUÉT KHỐI THÂN (TORSO MASS) - BỎ QUA ĐẦU NẾU NÓ QUÁ NHỎ / BỊ KHUẤT
         for (int y = 0; y < height; y += 4) {
             const uint8_t* rowPtr = basePtr + (y * rowStride);
             for (int x = 0; x < width; x += 4) {
@@ -54,6 +58,8 @@ public:
                     sumWX += x * weight;
                     sumWY += y * weight;
                     totalWeight += weight;
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
                     pixelCount++;
                 }
             }
@@ -64,24 +70,31 @@ public:
         if (dt < 0.001) dt = 0.001;
 
         if (totalWeight > 0 && pixelCount >= 2) { 
-            double currentCX = sumWX / totalWeight;
-            double currentCY = sumWY / totalWeight;
+            // Tọa độ Tâm Khối (Torso Center)
+            double torsoCX = sumWX / totalWeight;
+            double torsoCY = sumWY / totalWeight;
             
+            int boxHeight = maxY - minY;
+            
+            // 2. CHIẾU NGƯỢC KHUNG XƯƠNG (JSON INVERSE PROJECTION)
+            // Dùng Tỷ Lệ Vàng 0.444 để suy luận ra tọa độ "Đầu Ảo" (Phantom Head)
+            // Dù đầu thật đang núp sau tường, Đầu Ảo vẫn được tính toán chính xác trên không trung
+            double phantomHeadX = torsoCX;
+            double phantomHeadY = torsoCY - (boxHeight * JSON_HEAD_PROJECTION_RATIO);
+
             if (prevTime > 0) {
-                velX = (velX * 0.7) + (((currentCX - prevCX) / dt) * 0.3);
-                velY = (velY * 0.7) + (((currentCY - prevCY) / dt) * 0.3);
+                velX = (velX * 0.7) + (((phantomHeadX - prevCX) / dt) * 0.3);
+                velY = (velY * 0.7) + (((phantomHeadY - prevCY) / dt) * 0.3);
             }
-            prevCX = currentCX; prevCY = currentCY; prevTime = currentTime;
+            prevCX = phantomHeadX; prevCY = phantomHeadY; prevTime = currentTime;
             lostFrames = 0;
             dreamVelX = velX; dreamVelY = velY;
 
-            double dx = currentCX - (width / 2.0);
-            double dy = currentCY - (height / 2.0);
+            double dx = phantomHeadX - (width / 2.0);
+            double dy = phantomHeadY - (height / 2.0);
             double dist = std::sqrt(dx*dx + dy*dy);
 
-            // [THIÊN TÀI 1: VÙNG ĐÓNG BĂNG TUYỆT ĐỐI (ABSOLUTE LOCK ZONE)]
-            // Khi tâm súng lọt vào bán kính 2.5px quanh đầu địch -> CẮT ĐỨT LỰC KÉO
-            // Touch-DAC sẽ ngưng bơm xung. Tâm súng ĐÓNG BĂNG, không một gợn sóng, không lung lay.
+            // 3. ĐÓNG BĂNG TUYỆT ĐỐI (ABSOLUTE FREEZE)
             if (dist < LOCK_ZONE_RADIUS) {
                 state.forceX = 0;
                 state.forceY = 0;
@@ -89,13 +102,11 @@ public:
                 return state;
             }
 
-            // [THIÊN TÀI 2: PHỄU HÚT TỪ TÍNH (MAGNETIC FUNNEL - ĐẨY NHẸ LÀ LÊN)]
-            // Càng gần đầu, lực hút (Kp) càng tăng theo hàm nghịch đảo (Hố đen)
-            // Thêm Velocity Assist (Hỗ trợ vận tốc) để tâm súng "lướt" theo hướng người dùng đẩy
+            // 4. PHỄU HÚT TỪ TÍNH (MAGNETIC FUNNEL - ĐẨY NHẸ LÀ LÊN)
             double dynamicKp = 2.0 + (150.0 / (dist + 5.0)); 
-            double dynamicKd = 0.8 + (dist * 0.02); // Lực hãm tăng dần để không bị trượt qua đầu
+            double dynamicKd = 0.8 + (dist * 0.02); 
             
-            double assistX = velX * 0.15; // Lướt trên màn hình
+            double assistX = velX * 0.15; 
             double assistY = velY * 0.15;
 
             double rawX = (dx * dynamicKp) + assistX;
@@ -109,7 +120,7 @@ public:
             state.locked = true;
 
         } else {
-            // [THIÊN TÀI 3: TRẠNG THÁI MƠ (STOCHASTIC INERTIA)]
+            // 5. TRẠNG THÁI MƠ (STOCHASTIC INERTIA - BYPASS MẤT DẤU)
             lostFrames++;
             if (lostFrames < 30) { 
                 double driftX = dreamVelX * 0.05;
@@ -128,7 +139,7 @@ public:
             }
         }
 
-        // Quét Máu
+        // Quét Máu (Infinity Sức)
         int healthPixels = 0, totalHealthPixels = 0;
         int barStartY = height - 150;
         int barEndY = height - 100;
@@ -153,7 +164,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    MagneticFunnelCore core;
+    InverseKinematicsCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
