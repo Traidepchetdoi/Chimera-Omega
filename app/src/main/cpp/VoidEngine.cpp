@@ -2,10 +2,13 @@
 #include <android/log.h>
 #include <cstdint>
 #include <cmath>
+#include <algorithm> // [OMEGA STL PATCH] Triệu hồi std::max và std::min cho Integer
 #include <time.h>
 #include <atomic>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_GRID", __VA_ARGS__)
+
+// ... (Toàn bộ phần code bên dưới giữ nguyên 100%, không cần sửa bất kỳ chữ nào) ...
 
 struct TargetState {
     double forceX, forceY; 
