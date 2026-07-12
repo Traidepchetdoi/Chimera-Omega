@@ -34,6 +34,7 @@ public class OpticalPhantomService extends Service implements android.hardware.S
     private Vibrator vibrator;
     private long lastHapticTick = 0;
     private PowerManager.WakeLock wakeLock;
+    private boolean isFirstFrameCaptured = false;
 
     static { System.loadLibrary("omega_core"); }
     public native double[] processOpticalFrame(ByteBuffer buffer, int w, int h, int rowStride);
@@ -60,34 +61,21 @@ public class OpticalPhantomService extends Service implements android.hardware.S
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // [OMEGA EXCEPTION SHIELD] BẪY NGOẠI LỆ TUYỆT ĐỐI CHO ANDROID 16 & MAGICOS
         try {
             Notification notification = createNotification();
-            
-            // 1. FIX LỖI CRASH MissingForegroundServiceTypeException (API 34+)
-            if (Build.VERSION.SDK_INT >= 34) { // UPSIDE_DOWN_CAKE
+            if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
             } else {
                 startForeground(1, notification);
             }
 
-            // 2. GIẢI MÃ INTENT INJECTION
-            if (intent != null && intent.hasExtra("CODE")) {
-                int code = intent.getIntExtra("CODE", -1);
-                Intent data;
-                if (Build.VERSION.SDK_INT >= 33) {
-                    data = intent.getParcelableExtra("DATA", Intent.class);
-                } else {
-                    data = intent.getParcelableExtra("DATA");
-                }
-                
-                if (code != -1 && data != null) {
-                    engageOpticalTrap(code, data);
-                }
+            // [OMEGA STATIC VAULT] Lấy Token trực tiếp từ RAM, Bypass IPC Serialize
+            if (MediaProjectionVault.resultCode != -1 && MediaProjectionVault.data != null) {
+                engageOpticalTrap(MediaProjectionVault.resultCode, MediaProjectionVault.data);
+                // Xóa Két Sắt ngay lập tức để chống rò rỉ bộ nhớ
+                MediaProjectionVault.clear();
             }
         } catch (Exception e) {
-            // MagicOS có ném SecurityException hay ForegroundServiceStartNotAllowedException
-            // App TUYỆT ĐỐI KHÔNG CRASH. Nuốt lỗi và giữ Service sống.
             e.printStackTrace();
         }
         return START_STICKY;
@@ -96,7 +84,10 @@ public class OpticalPhantomService extends Service implements android.hardware.S
     private void engageOpticalTrap(int resultCode, Intent data) {
         try {
             MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            // Gọi getMediaProjection khi MainActivity VẪN ĐANG Ở FOREGROUND (Chưa moveTaskToBack)
+            // Điều này thỏa mãn 100% luật "Foreground Sponsor" của Android 14+
             mediaProjection = mgr.getMediaProjection(resultCode, data);
+            
             DisplayMetrics metrics = getResources().getDisplayMetrics();
             screenWidth = metrics.widthPixels; screenHeight = metrics.heightPixels;
 
@@ -107,6 +98,12 @@ public class OpticalPhantomService extends Service implements android.hardware.S
             imageReader.setOnImageAvailableListener(reader -> {
                 Image image = reader.acquireLatestImage();
                 if (image != null) {
+                    // [OMEGA TIGHT SYNC] Báo cáo Frame 0 đã bắt được
+                    if (!isFirstFrameCaptured) {
+                        isFirstFrameCaptured = true;
+                        MediaProjectionVault.isServiceReady = true; // Gửi tín hiệu về MainActivity
+                    }
+
                     Image.Plane[] planes = image.getPlanes();
                     if (planes.length > 0) {
                         ByteBuffer buffer = planes[0].getBuffer();
@@ -131,7 +128,6 @@ public class OpticalPhantomService extends Service implements android.hardware.S
                 }
             }, null);
         } catch (Exception e) { 
-            // Bẫy lỗi SecurityException khi MagicOS thu hồi token
             e.printStackTrace(); 
         }
     }
