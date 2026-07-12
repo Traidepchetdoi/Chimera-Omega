@@ -2,11 +2,11 @@
 #include <android/log.h>
 #include <cstdint>
 #include <cmath>
-#include <algorithm> // [OMEGA STL PATCH] Bắt buộc phải có để dùng std::max và std::min
+#include <algorithm>
 #include <time.h>
 #include <atomic>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_GHOST", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_HYPER", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -17,7 +17,7 @@ struct TargetState {
 std::atomic<float> g_gyroX{0.0f};
 std::atomic<float> g_gyroY{0.0f};
 
-class GhostCancellationCore {
+class HyperSensitivityCore {
 private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
@@ -29,13 +29,10 @@ private:
 
     const double JSON_HEAD_PROJECTION_RATIO = 0.444; 
     
-    const double CANCELLATION_RATIO = 15.0; 
-    const double BASE_LOCK_TENSION = 250.0; 
+    // [OMEGA HYPER-SENSITIVITY] ĐỘ NHẠY 400X & BẺ CONG KHÔNG GIAN
+    const double WARP_FACTOR = 50.0;   // Hệ số bẻ cong Tanh (Càng nhỏ, độ nhạy gốc càng kinh khủng)
+    const double MAX_SWIPE_PX = 150.0; // Giới hạn vuốt tối đa 150px / 1ms (Tràn bộ nhớ đệm Unity)
     const double GYRO_THRESHOLD = 0.10;     
-
-    double clamp(double v, double lo, double hi) {
-        return (v < lo) ? lo : (v > hi) ? hi : v;
-    }
 
     double getHardwareTime() {
         struct timespec ts;
@@ -71,7 +68,6 @@ public:
         int finalMinX = width, finalMaxX = 0, finalMinY = height, finalMaxY = 0;
 
         if (foundROI) {
-            // std::max và std::min sẽ hoạt động hoàn hảo nhờ <algorithm> ở dòng 5
             int scanMinX = std::max(0, roiMinX - 15);
             int scanMaxX = std::min(width - 1, roiMaxX + 15);
             int scanMinY = std::max(0, roiMinY - 15);
@@ -127,10 +123,8 @@ public:
                 if (ghostFrames < 120) { 
                     ghostX += ghostVX * dt;
                     ghostY += ghostVY * dt;
-                    
                     ghostVX *= 0.98; 
                     ghostVY *= 0.98; 
-                    
                     targetX = ghostX;
                     targetY = ghostY;
                     hasTarget = true; 
@@ -145,19 +139,21 @@ public:
         if (hasTarget) {
             double dx = targetX - (width / 2.0);
             double dy = targetY - (height / 2.0);
-            double dist = std::sqrt(dx*dx + dy*dy);
 
-            double dynamicTension = BASE_LOCK_TENSION; 
-            
+            // [OMEGA HYPER-SNAP] BẺ CONG KHÔNG GIAN VỚI ĐỘ NHẠY 400X
+            // Hàm Tanh: Dù dx có là 1000px, nó cũng chỉ vuốt tối đa 150px/frame.
+            // Tạo ra cú "Teleport" tức thì mà không bị xoay vòng 360 độ.
+            double swipeX = std::tanh(dx / WARP_FACTOR) * MAX_SWIPE_PX;
+            double swipeY = std::tanh(dy / WARP_FACTOR) * MAX_SWIPE_PX;
+
+            // Triệt tiêu xung lượng tay người dùng (Giữ độ dính khi đang vuốt)
             if (gyroMagnitude > GYRO_THRESHOLD) {
-                dynamicTension += (gyroMagnitude * CANCELLATION_RATIO * 100.0); 
+                swipeX -= (gyroX * 25.0);
+                swipeY -= (gyroY * 25.0);
             }
 
-            double pullX = dx * (dynamicTension / (dist + 1.0));
-            double pullY = dy * (dynamicTension / (dist + 1.0));
-
-            state.forceX = clamp(pullX, -800.0, 800.0);
-            state.forceY = clamp(pullY, -800.0, 800.0);
+            state.forceX = swipeX;
+            state.forceY = swipeY;
             state.locked = true;
 
         } else {
@@ -193,7 +189,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    GhostCancellationCore core;
+    HyperSensitivityCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
