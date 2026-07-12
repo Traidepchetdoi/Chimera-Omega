@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
@@ -24,9 +25,6 @@ import androidx.core.app.NotificationCompat;
 import java.nio.ByteBuffer;
 
 public class OpticalPhantomService extends Service implements android.hardware.SensorEventListener {
-    public static int mResultCode = -1;
-    public static Intent mResultIntent = null;
-
     private ImageReader imageReader;
     private VirtualDisplay virtualDisplay;
     private MediaProjection mediaProjection;
@@ -49,17 +47,6 @@ public class OpticalPhantomService extends Service implements android.hardware.S
         wakeLock.acquire();
         
         createNotificationChannel();
-        
-        // [OMEGA EXCEPTION TRAP] BẪY NGOẠI LỆ FOREGROUND
-        // Chặn đứng việc OS giết Service làm Crash toàn bộ App (Lỗi "bị đẩy ra")
-        try {
-            startForeground(1, createNotification());
-        } catch (Exception e) {
-            // Nuốt ngoại lệ ForegroundServiceStartNotAllowedException
-            // App giao diện sẽ KHÔNG BAO GIỜ CRASH. Service sẽ âm thầm hồi sinh ở lần gọi sau.
-            e.printStackTrace();
-        }
-        
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         sensorManager = (android.hardware.SensorManager) getSystemService(Context.SENSOR_SERVICE);
         android.hardware.Sensor gyro = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_GYROSCOPE);
@@ -73,7 +60,36 @@ public class OpticalPhantomService extends Service implements android.hardware.S
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (mResultCode != -1 && mResultIntent != null) engageOpticalTrap(mResultCode, mResultIntent);
+        // [OMEGA EXCEPTION SHIELD] BẪY NGOẠI LỆ TUYỆT ĐỐI CHO ANDROID 16 & MAGICOS
+        try {
+            Notification notification = createNotification();
+            
+            // 1. FIX LỖI CRASH MissingForegroundServiceTypeException (API 34+)
+            if (Build.VERSION.SDK_INT >= 34) { // UPSIDE_DOWN_CAKE
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            } else {
+                startForeground(1, notification);
+            }
+
+            // 2. GIẢI MÃ INTENT INJECTION
+            if (intent != null && intent.hasExtra("CODE")) {
+                int code = intent.getIntExtra("CODE", -1);
+                Intent data;
+                if (Build.VERSION.SDK_INT >= 33) {
+                    data = intent.getParcelableExtra("DATA", Intent.class);
+                } else {
+                    data = intent.getParcelableExtra("DATA");
+                }
+                
+                if (code != -1 && data != null) {
+                    engageOpticalTrap(code, data);
+                }
+            }
+        } catch (Exception e) {
+            // MagicOS có ném SecurityException hay ForegroundServiceStartNotAllowedException
+            // App TUYỆT ĐỐI KHÔNG CRASH. Nuốt lỗi và giữ Service sống.
+            e.printStackTrace();
+        }
         return START_STICKY;
     }
 
@@ -114,23 +130,24 @@ public class OpticalPhantomService extends Service implements android.hardware.S
                     image.close();
                 }
             }, null);
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) { 
+            // Bẫy lỗi SecurityException khi MagicOS thu hồi token
+            e.printStackTrace(); 
+        }
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // IMPORTANCE_HIGH: Bắt buộc để kích hoạt FullScreenIntent bypass Gaming Mode
             NotificationChannel channel = new NotificationChannel("OMEGA_VISION", "Omega Core", NotificationManager.IMPORTANCE_HIGH);
             channel.setSound(null, null);
             channel.setVibrationPattern(null);
             channel.setShowBadge(false);
-            channel.setBypassDnd(true); // [OMEGA BYPASS] Xuyên thủng chế độ Không Làm Phiền
+            channel.setBypassDnd(true);
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
 
     private Notification createNotification() {
-        // Tạo một Intent giả lập cuộc gọi đến để ép OS phải hiện thông báo
         Intent fullScreenIntent = new Intent(this, MainActivity.class);
         fullScreenIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_USER_ACTION);
         PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(this, 0, fullScreenIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -139,9 +156,9 @@ public class OpticalPhantomService extends Service implements android.hardware.S
                 .setContentTitle("Omega Core System")
                 .setContentText("Flat-Warp Engine & IMU Fusion Active")
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-                .setPriority(NotificationCompat.PRIORITY_HIGH) // Ép ưu tiên cao nhất
-                .setCategory(Notification.CATEGORY_CALL) // Giả danh cuộc gọi để bypass Task Killer
-                .setFullScreenIntent(fullScreenPendingIntent, true) // [OMEGA OVERRIDE] Xé rách Gaming Mode
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(Notification.CATEGORY_CALL)
+                .setFullScreenIntent(fullScreenPendingIntent, true)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .build();
