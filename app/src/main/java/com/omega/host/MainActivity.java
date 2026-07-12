@@ -1,6 +1,7 @@
 package com.omega.host;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -8,6 +9,7 @@ import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.widget.Button;
@@ -20,6 +22,7 @@ public class MainActivity extends Activity {
     private static final int OVERLAY_REQ = 1;
     private static final int MEDIA_REQ = 2;
     private static final int NOTIFICATION_REQ = 3;
+    private static final int BATTERY_REQ = 4;
 
     private TextView tv;
 
@@ -54,13 +57,13 @@ public class MainActivity extends Activity {
     }
 
     private void checkPermissionsAndStart() {
-        // 1. Xin quyền Overlay
+        // 1. Overlay
         if (!Settings.canDrawOverlays(this)) {
             startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), OVERLAY_REQ);
             return;
         }
 
-        // 2. Xin quyền Thông Báo (Bắt buộc cho Android 13+ để giữ sống MediaProjection)
+        // 2. Notification (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQ);
@@ -68,37 +71,69 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 3. Kích hoạt MediaProjection
+        // 3. BỎ QUA TỐI ƯU HÓA PIN (BATTERY BYPASS)
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, BATTERY_REQ);
+                return;
+            }
+        }
+
+        // 4. MediaProjection
         startCapture();
     }
 
     private void startCapture() {
+        // Kiểm tra Service đã chạy chưa để tránh start đúp gây crash
+        if (isMyServiceRunning(OpticalPhantomService.class)) {
+            tv.setText("[STATUS] SYSTEM ALREADY ACTIVE.\nHide this app now.");
+            moveTaskToBack(true);
+            return;
+        }
+
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_REQ);
+    }
+
+    private boolean isMyServiceRunning(Class<?> serviceClass) {
+        android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+            if (serviceClass.getName().equals(service.service.getClassName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == NOTIFICATION_REQ) {
-            // Dù người dùng từ chối, ta vẫn cố gắng start (nhưng có thể sẽ bị OS giết ngầm)
-            startCapture();
-        }
+        if (requestCode == NOTIFICATION_REQ) checkPermissionsAndStart();
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == OVERLAY_REQ && Settings.canDrawOverlays(this)) {
+        
+        if (requestCode == OVERLAY_REQ || requestCode == BATTERY_REQ) {
             checkPermissionsAndStart();
         } else if (requestCode == MEDIA_REQ && resultCode == RESULT_OK) {
             OpticalPhantomService.mResultCode = resultCode;
             OpticalPhantomService.mResultIntent = data;
-            startForegroundService(new Intent(this, OpticalPhantomService.class));
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(new Intent(this, OpticalPhantomService.class));
+            } else {
+                startService(new Intent(this, OpticalPhantomService.class));
+            }
             
             tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nMediaProjection Engaged.\nHide this app now.");
             
-            // Tự động ẩn app xuống nền để全屏 game
+            // [OMEGA ANCHOR] TUYỆT ĐỐI KHÔNG finish(). 
+            // Chỉ ẩn xuống nền để giữ Activity sống làm "mỏ neo" cho MediaProjection.
             moveTaskToBack(true); 
         }
     }
