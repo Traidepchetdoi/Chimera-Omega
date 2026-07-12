@@ -2,28 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- [OMEGA ROOT PERMISSIONS] BẮT BUỘC PHẢI NẰM NGOÀI THẺ APPLICATION -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    
+    <!-- TỬ HUYỆT ANDROID 14+: THIẾU DÒNG NÀY APP SẼ CRASH KHI BẤM START -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" /> 
+    
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <!-- [OMEGA PRIVILEGE ESCALATION] QUYỀN THAY ĐỔI CÀI ĐẶT HỆ THỐNG -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
-    <!-- [OMEGA BYPASS] QUYỀN XÉ RÁCH GAMING MODE / DO NOT DISTURB -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Omega System"
+        android:persistent="true"
+        android:largeHeap="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         tools:targetApi="31">
 
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity 
+            android:name=".MainActivity" 
+            android:exported="true"
+            android:launchMode="singleTask"> <!-- singleTask: Ngăn việc mở nhiều instance gây rò rỉ RAM -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -33,7 +39,7 @@
         <service
             android:name=".OpticalPhantomService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" /> <!-- Bắt buộc cho Android 14 -->
+            android:foregroundServiceType="mediaProjection" /> 
 
         <service
             android:name=".OmegaMacroService"
@@ -46,5 +52,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+        
     </application>
 </manifest>
