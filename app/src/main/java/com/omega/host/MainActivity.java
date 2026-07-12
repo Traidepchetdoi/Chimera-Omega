@@ -9,6 +9,7 @@ import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -26,6 +27,7 @@ public class MainActivity extends Activity {
     private static final int WRITE_SETTINGS_REQ = 5;
 
     private TextView tv;
+    private Handler waitHandler = new Handler();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,14 +39,14 @@ public class MainActivity extends Activity {
         layout.setGravity(Gravity.CENTER);
 
         tv = new TextView(this);
-        tv.setText("OMEGA ETERNITY SYSTEM\nHonor MagicOS Bypass Ready...");
+        tv.setText("OMEGA ETERNITY SYSTEM\nHonor MagicOS 10 Bypass...");
         tv.setTextColor(Color.GREEN);
         tv.setTextSize(18f);
         tv.setGravity(Gravity.CENTER);
         layout.addView(tv);
 
         Button btnAcc = new Button(this);
-        btnAcc.setText("1. ENABLE ACCESSIBILITY (Macro)");
+        btnAcc.setText("1. ENABLE ACCESSIBILITY");
         btnAcc.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         layout.addView(btnAcc);
 
@@ -96,21 +98,38 @@ public class MainActivity extends Activity {
         if (requestCode == OVERLAY_REQ || requestCode == BATTERY_REQ || requestCode == WRITE_SETTINGS_REQ) {
             checkPermissionsAndStart();
         } else if (requestCode == MEDIA_REQ && resultCode == RESULT_OK) {
-            // [OMEGA INTENT INJECTION] Truyền Token trực tiếp, KHÔNG dùng biến static
-            Intent serviceIntent = new Intent(this, OpticalPhantomService.class);
-            serviceIntent.putExtra("CODE", resultCode);
-            serviceIntent.putExtra("DATA", data);
+            // [OMEGA STATIC VAULT] Bỏ Token vào Két Sắt, KHÔNG truyền qua Intent
+            MediaProjectionVault.store(resultCode, data);
             
+            Intent serviceIntent = new Intent(this, OpticalPhantomService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
             } else {
                 startService(serviceIntent);
             }
             
-            tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nMagicOS Bypass Engaged.\nHide this app now.");
+            tv.setText("[STATUS] WAITING FOR FIRST FRAME...\nDO NOT HIDE APP YET.");
+            tv.setTextColor(Color.YELLOW);
             
-            // Delay 1.5 giây để MagicOS kịp "nuốt" token trước khi ẩn app
-            new android.os.Handler().postDelayed(() -> moveTaskToBack(true), 1500); 
+            // [OMEGA TIGHT SYNC] Chờ Service bắt được Frame 0 rồi mới ẩn App
+            waitForServiceReady();
         }
+    }
+
+    private void waitForServiceReady() {
+        waitHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (MediaProjectionVault.isServiceReady) {
+                    tv.setText("[STATUS] NEURAL SYNC IMMORTAL.\nMagicOS Bypass Complete.\nHide this app now.");
+                    tv.setTextColor(Color.GREEN);
+                    // Chỉ ẩn xuống nền KHI VÀ CHỈ KHI Service đã an toàn
+                    moveTaskToBack(true); 
+                } else {
+                    // Tiếp tục chờ thêm 500ms
+                    waitForServiceReady();
+                }
+            }
+        }, 500);
     }
 }
