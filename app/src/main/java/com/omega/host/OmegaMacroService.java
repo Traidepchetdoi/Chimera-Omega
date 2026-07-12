@@ -18,15 +18,9 @@ public class OmegaMacroService extends AccessibilityService {
     private final float ORIGIN_X = 1000; 
     private final float ORIGIN_Y = 400;
     
-    // [OMEGA 128-BIT ACCUMULATOR]
-    private double accX = 0; // Dùng double 64-bit để chứa vi phân 0.00001 mà không bị trôi
-    private double accY = 0;
-    
-    private final double MICRO_STEP = 0.00001;       // Độ phân giải toán học cực hạn
-    private final double PHYSICAL_THRESHOLD = 0.08;  // Ngưỡng vật lý tối thiểu (Unity vẫn nhận)
-    private final long STROKE_DURATION = 1;         
-    
+    private final long STROKE_DURATION = 1; // 1ms
     private long lastSwipeTimeNano = 0;
+    
     private final double[] reusablePayload = new double[2];
 
     private final Handler.Callback gestureCallback = new Handler.Callback() {
@@ -49,32 +43,23 @@ public class OmegaMacroService extends AccessibilityService {
     @Override
     public void onServiceConnected() {
         instance = this;
-        HandlerThread thread = new HandlerThread("Omega128Bit");
+        HandlerThread thread = new HandlerThread("OmegaHyper");
         thread.start();
         Process.setThreadPriority(thread.getThreadId(), Process.THREAD_PRIORITY_URGENT_AUDIO);
         gestureHandler = new Handler(thread.getLooper(), gestureCallback);
     }
 
-    public void injectMicroSwipe(double forceX, double forceY, boolean locked) {
+    // Giữ nguyên tên hàm để không phải sửa OpticalPhantomService
+    public void injectMicroSwipe(double swipeX, double swipeY, boolean locked) {
         if (instance == null || gestureHandler == null) return;
+        
+        // Nếu đã khóa chết (sai số < 0.05px) thì ngưng bơm để tâm đứng yên tuyệt đối
+        if (!locked || (Math.abs(swipeX) < 0.05 && Math.abs(swipeY) < 0.05)) return;
 
-        // Tích lũy vi phân 0.00001px vào biến độc lập (Không bị Float Absorption)
-        accX += forceX * MICRO_STEP; 
-        accY += forceY * MICRO_STEP;
-
-        if (!locked) { accX = 0; accY = 0; return; }
-
-        if (Math.abs(accX) < PHYSICAL_THRESHOLD && Math.abs(accY) < PHYSICAL_THRESHOLD) return;
-
+        // Rate limit 1000Hz (1ms)
         long nowNano = System.nanoTime();
         if (nowNano - lastSwipeTimeNano < 1_000_000L) return; 
         lastSwipeTimeNano = nowNano;
-
-        double swipeX = Math.signum(accX) * PHYSICAL_THRESHOLD;
-        double swipeY = Math.signum(accY) * PHYSICAL_THRESHOLD;
-        
-        accX -= swipeX; 
-        accY -= swipeY;
 
         reusablePayload[0] = swipeX;
         reusablePayload[1] = swipeY;
