@@ -6,7 +6,7 @@
 #include <time.h>
 #include <atomic>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_HYPER", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "OMEGA_INFINITE", __VA_ARGS__)
 
 struct TargetState {
     double forceX, forceY; 
@@ -17,7 +17,7 @@ struct TargetState {
 std::atomic<float> g_gyroX{0.0f};
 std::atomic<float> g_gyroY{0.0f};
 
-class HyperSensitivityCore {
+class InfinitePowerCore {
 private:
     double prevCX = 0, prevCY = 0; 
     double prevTime = 0;
@@ -29,10 +29,13 @@ private:
 
     const double JSON_HEAD_PROJECTION_RATIO = 0.444; 
     
-    // [OMEGA HYPER-SENSITIVITY] ĐỘ NHẠY 400X & BẺ CONG KHÔNG GIAN
-    const double WARP_FACTOR = 50.0;   // Hệ số bẻ cong Tanh (Càng nhỏ, độ nhạy gốc càng kinh khủng)
-    const double MAX_SWIPE_PX = 150.0; // Giới hạn vuốt tối đa 150px / 1ms (Tràn bộ nhớ đệm Unity)
-    const double GYRO_THRESHOLD = 0.10;     
+    // [OMEGA INFINITE POWER CURVE] THÔNG SỐ ĐƯỜNG CONG VÔ HẠN
+    const double K_FACTOR = 0.025;       // Hệ số vi mô (Tạo ra 0.01 ở cự ly sát)
+    const double EXPONENT = 1.85;        // Số mũ vô hạn (Càng xa, gia tốc càng kinh khủng)
+    const double MAX_180_TURN = 1500.0;  // Giới hạn vật lý của 1 cú xoay 180 độ (Chống xoay trực thăng)
+    
+    const double GYRO_THRESHOLD = 0.12;     
+    const double CANCELLATION_RATIO = 12.0; 
 
     double getHardwareTime() {
         struct timespec ts;
@@ -139,21 +142,31 @@ public:
         if (hasTarget) {
             double dx = targetX - (width / 2.0);
             double dy = targetY - (height / 2.0);
+            double dist = std::sqrt(dx*dx + dy*dy);
+            if (dist < 0.5) dist = 0.5; 
 
-            // [OMEGA HYPER-SNAP] BẺ CONG KHÔNG GIAN VỚI ĐỘ NHẠY 400X
-            // Hàm Tanh: Dù dx có là 1000px, nó cũng chỉ vuốt tối đa 150px/frame.
-            // Tạo ra cú "Teleport" tức thì mà không bị xoay vòng 360 độ.
-            double swipeX = std::tanh(dx / WARP_FACTOR) * MAX_SWIPE_PX;
-            double swipeY = std::tanh(dy / WARP_FACTOR) * MAX_SWIPE_PX;
+            // [OMEGA INFINITE POWER CURVE] HÀM LŨY THỪA VÔ HẠN
+            // Không có trần 1.0. Hệ số nhân tăng theo cấp số nhân (2x, 5x, 15x...)
+            double swipe_magnitude = K_FACTOR * std::pow(dist, EXPONENT);
+            
+            // Bảo vệ Unity Engine: Kẹp kết quả vật lý ở mức 180 độ (1500px)
+            if (swipe_magnitude > MAX_180_TURN) swipe_magnitude = MAX_180_TURN;
 
-            // Triệt tiêu xung lượng tay người dùng (Giữ độ dính khi đang vuốt)
+            // Chuẩn hóa Vector (Giữ nguyên hướng, áp dụng độ lớn vô hạn)
+            double norm_dx = dx / dist;
+            double norm_dy = dy / dist;
+
+            double raw_swipeX = norm_dx * swipe_magnitude;
+            double raw_swipeY = norm_dy * swipe_magnitude;
+
+            // Triệt tiêu xung lượng tay người dùng
             if (gyroMagnitude > GYRO_THRESHOLD) {
-                swipeX -= (gyroX * 25.0);
-                swipeY -= (gyroY * 25.0);
+                raw_swipeX -= (gyroX * CANCELLATION_RATIO);
+                raw_swipeY -= (gyroY * CANCELLATION_RATIO);
             }
 
-            state.forceX = swipeX;
-            state.forceY = swipeY;
+            state.forceX = raw_swipeX;
+            state.forceY = raw_swipeY;
             state.locked = true;
 
         } else {
@@ -189,7 +202,7 @@ Java_com_omega_host_OpticalPhantomService_processOpticalFrame(
     uint8_t* basePtr = static_cast<uint8_t*>(env->GetDirectBufferAddress(byteBuffer));
     if (!basePtr) return nullptr;
     
-    HyperSensitivityCore core;
+    InfinitePowerCore core;
     TargetState state = core.ProcessFrame(basePtr, w, h, rowStride);
     
     jdoubleArray result = env->NewDoubleArray(4);
